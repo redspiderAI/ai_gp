@@ -13,4 +13,5 @@ public record AiChatResponse(
 		@Schema(description = "本轮助手消息记录 ID") Long assistantMessageId,
 		@Schema(description = "本轮启用的能力 id 列表（如 chat、assistant_tasks）") List<String> capabilities,
 		@Schema(description = "用户提及但尚未上线的能力 id 列表") List<String> unsupportedCapabilities,
-		@Schema(description = "本轮用户消息附图 URL") List<String> userImageUrls) {}
+		@Schema(description = "本轮用户消息附图 URL") List<String> userImageUrls,
+		@Schema(description = "若本轮已生成待确认成长计划草案，则非空") AiChatPlanProposalHint planProposal) {}

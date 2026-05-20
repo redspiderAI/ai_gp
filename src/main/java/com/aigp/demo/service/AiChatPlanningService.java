@@ -33,7 +33,7 @@ public class AiChatPlanningService {
 			你是「意图分析」内部模块，输出仅供后端拼接进 system，用户看不到。
 			下方 messages 中，system 之后、最后一条 user 之前的内容为【当前会话】内已有对话（不含本轮用户输入）。
 			请结合会话历史理解指代（如「今天」「那个会」）后再分析。
-			用 3～5 条短句说明：用户意图、是否应调用任务工具（create_task/list_tasks 等）。
+			用 3～5 条短句说明：用户意图、是否应调用任务工具（create_task/list_tasks 等）、是否应调用 propose_growth_plan 生成待确认计划草案。
 			若为「提醒/记得/别忘了」且未给具体几点，须写明：create_task 应填 dueAt 并由执行模型推荐合理时刻，勿仅 dueDate=今天。
 			禁止：问候用户、向用户提问、以「好的」「请问」开头、输出任何面向用户的完整回复话术。
 			不要编造未在上下文出现的事实。

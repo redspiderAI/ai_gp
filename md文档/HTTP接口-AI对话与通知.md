@@ -81,19 +81,90 @@
 
 ---
 
-### 2.2 拉取会话历史消息
+### 2.2 分页列出历史会话
+
+- **方法 / 路径**：`GET /api/v1/ai/chat/sessions`
+- **说明**：返回当前登录用户全部 AI 对话会话摘要（含 `sessionId`），按 `updatedAt` **降序**（最近活跃在前）。用于会话列表页；进入某会话后再调 **2.3** 拉消息。
+- **查询参数**：
+
+| 参数 | 类型 | 必填 | 默认 | 说明 |
+|------|------|------|------|------|
+| page | number | 否 | 0 | 页码，从 0 起 |
+| size | number | 否 | 20 | 每页条数，范围 1～100 |
+
+- **200 响应体**（JSON）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| items | array | 本页会话列表 |
+| page | number | 当前页码 |
+| size | number | 每页条数 |
+| totalElements | number | 会话总数 |
+| totalPages | number | 总页数 |
+| hasNext | boolean | 是否有下一页 |
+
+**items[] 元素**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| sessionId | number | 会话 ID，继续对话或拉消息时传入 |
+| title | string \| null | 会话标题 |
+| provider | string | 提供商，如 `mimo` |
+| model | string | 模型名 |
+| createdAt | string | 创建时间（ISO） |
+| updatedAt | string | 最近更新时间（ISO） |
+
+- **示例**：`GET /api/v1/ai/chat/sessions?page=0&size=20`
+
+```json
+{
+  "items": [
+    {
+      "sessionId": 12,
+      "title": "帮我记一下周五前要交周报",
+      "provider": "mimo",
+      "model": "mimo-v2.5-pro",
+      "createdAt": "2026-05-18T10:00:00",
+      "updatedAt": "2026-05-19T09:30:00"
+    }
+  ],
+  "page": 0,
+  "size": 20,
+  "totalElements": 1,
+  "totalPages": 1,
+  "hasNext": false
+}
+```
+
+- **401**：未登录。
+
+---
+
+### 2.3 分页拉取会话历史消息
 
 - **方法 / 路径**：`GET /api/v1/ai/chat/sessions/{sessionId}/messages`
-- **路径参数**：`sessionId` — 会话 ID
-- **说明**：返回该会话下已落库的消息（仅 `USER` / `ASSISTANT`），按 `createdAt` **升序**；含「任务提醒」会话。
+- **路径参数**：`sessionId` — 会话 ID（须 > 0）
+- **查询参数**：
+
+| 参数 | 类型 | 必填 | 默认 | 说明 |
+|------|------|------|------|------|
+| page | number | 否 | 0 | 页码，从 0 起 |
+| size | number | 否 | 50 | 每页条数，范围 1～100 |
+
+- **说明**：返回该会话下已落库的消息（仅 `USER` / `ASSISTANT`），按 `createdAt` **升序**分页；含「任务提醒」会话。长会话请翻页加载（`hasNext` 为 true 时 `page+1`）。
 - **200 响应体**（JSON）：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | sessionId | number | 会话 ID |
 | sessionTitle | string \| null | 会话标题 |
-| count | number | 消息条数 |
-| messages | array | 消息列表 |
+| count | number | 本页消息条数 |
+| messages | array | 本页消息列表 |
+| page | number | 当前页码 |
+| size | number | 每页条数 |
+| totalElements | number | 该会话消息总数 |
+| totalPages | number | 总页数 |
+| hasNext | boolean | 是否有下一页 |
 
 **messages[] 元素**：
 
@@ -102,6 +173,7 @@
 | id | number | 消息 ID |
 | role | string | `USER` 或 `ASSISTANT` |
 | content | string \| null | 文本内容 |
+| imageUrls | string[] | 附图 URL（仅 USER 可能有） |
 | createdAt | string | ISO 日期时间 |
 
 - **404**：会话不存在或不属于当前用户。
@@ -137,11 +209,35 @@
 | description | string \| null | 描述 |
 | status | string | `OPEN` / `DONE` / `CANCELLED` |
 | dueDate | string \| null | 截止日期 `yyyy-MM-dd` |
+| dueAt | string \| null | 截止时刻 `yyyy-MM-dd HH:mm`（用户本地，精确到分；无则按 `dueDate` + 默认提醒时刻） |
+| imageUrls | string[] | 任务附图 URL |
 | reminderSentAt | string \| null | 最近一次到期提醒发送时间 |
 | createdAt | string | 创建时间 |
 | updatedAt | string | 更新时间 |
 
-> 任务的创建、更新、取消主要由 **AI 对话接口** 内模型调用后端工具完成；本接口供 App 任务列表页直接展示。
+> 任务的创建、更新、取消主要由 **AI 对话接口** 内模型调用后端工具完成；本接口供 App 任务列表页直接展示。**当前无**「用户直接 PATCH 标记完成」的 REST 接口，完成/取消须通过对话让 AI 调用 `update_task`，或产品侧后续单独加接口。
+
+### 3.2 前端如何判断「任务是否已完成」（展示用）
+
+| `status` 值 | 含义 | 列表展示建议 |
+|-------------|------|----------------|
+| `OPEN` | 进行中，**仍会参与到期提醒** | 默认任务页应展示；未处理会反复产生 `TASK_DUE_REMINDER` 通知 |
+| `DONE` | 已完成 | 显示为已完成（勾选/置灰）；**不再发送**到期提醒 |
+| `CANCELLED` | 已取消 | 显示为已取消；**不再发送**到期提醒 |
+
+**判定规则（复制到前端）**：
+
+```ts
+const isTaskCompleted = (task) => task.status === 'DONE';
+const isTaskActive = (task) => task.status === 'OPEN';
+```
+
+**推荐请求**：
+
+- 任务页只展示待办：`GET /api/v1/users/me/tasks?status=OPEN`
+- 历史/已完成：`GET /api/v1/users/me/tasks?status=DONE`（或本地分 Tab 再请求）
+
+「喝水提醒保留很久」常见原因：对应助手任务 **`status` 仍为 `OPEN`**，定时器每分钟扫描 OPEN 任务并在到点写入新通知；与通知是否已读无关。引导用户在对话中说「喝水任务完成了」由 AI 更新为 `DONE`，或产品提供「标记完成」入口（需后端新增写接口）。
 
 ---
 
@@ -192,6 +288,131 @@
 
 - **方法 / 路径**：`PATCH /api/v1/users/me/notifications/read-all`
 - **204**：成功，无响应体。
+- **重要**：本接口**只把未读通知写上 `readAt`，不会删除记录**。因此之后若仍调用 **4.2 列表且未传 `unreadOnly=true`**，响应里**仍会有条目**，只是每条 `readAt` 非 `null`。这与「收件箱清空」不是同一语义。
+
+### 4.5 前端对接速查（通知中心 + 角标）
+
+**鉴权**：所有请求带 `Authorization: Bearer {accessToken}`。
+
+**推荐数据流**：
+
+```mermaid
+sequenceDiagram
+  participant App
+  participant API
+  participant WS
+  App->>API: GET .../notifications/unread-count
+  API-->>App: count（角标）
+  App->>API: GET .../notifications?unreadOnly=true
+  API-->>App: 未读列表（通知中心默认页）
+  WS-->>App: TASK_DUE_REMINDER 等推送
+  App->>App: unreadCount++ 或重新拉 unread-count
+  App->>API: PATCH .../notifications/{id}/read
+  App->>API: PATCH .../notifications/read-all
+  App->>API: GET unread-count + GET list?unreadOnly=true
+```
+
+| 场景 | 调用 | 说明 |
+|------|------|------|
+| 应用启动 / 进入消息页 | `GET .../unread-count` | 角标数字 |
+| 通知中心（仅未读） | `GET .../notifications?unreadOnly=true` | **一键已读后应使用此参数或本地过滤 `readAt == null`**，否则默认列表仍含已读历史 |
+| 通知历史（含已读） | `GET .../notifications` 或 `unreadOnly=false` | 展示全部，用 `readAt != null` 区分样式 |
+| 点开一条 | `PATCH .../notifications/{id}/read` → 204 | 本地可把该项 `readAt` 设为当前时间，并 `unreadCount--` |
+| 一键已读 | `PATCH .../notifications/read-all` → 204 | 然后**必须**刷新：`unread-count` 应为 `0`；列表若只显示未读则 `unreadOnly=true` 得到 `items: []` |
+| 实时 | `WebSocket /ws/v1/chat` | 见第 5 章；推送里带 `unreadCount`，可与 REST 对齐 |
+
+**为何「一键已读后列表还有消息」**（产品/前端常见误解）：
+
+1. **列表默认返回全部通知**（含已读），不是「未读收件箱」。
+2. **已读 ≠ 删除**；记录留在库中供历史查看。
+3. 正确做法：角标用 `unread-count`；未读列表用 `unreadOnly=true` 或过滤 `readAt === null`；已读项用灰色/折叠到「历史」Tab。
+
+**示例：一键已读后拉未读列表**
+
+```http
+PATCH /api/v1/users/me/notifications/read-all
+Authorization: Bearer {token}
+→ 204 No Content
+
+GET /api/v1/users/me/notifications/unread-count
+→ { "count": 0 }
+
+GET /api/v1/users/me/notifications?unreadOnly=true
+→ { "count": 0, "items": [] }
+```
+
+**通知与任务联动（可选）**：`items[].taskId` 非空时，可再请求 `GET /api/v1/users/me/tasks`（或缓存任务列表），用 **3.2** 的 `status` 决定是否在通知详情里显示「任务已完成」；任务为 `DONE`/`CANCELLED` 时仍可显示该条通知正文，但不必再强调「待处理」。
+
+### 4.6 移动系统推送（uni-push 2.0 + DCloud 托管 Firebase）— 锁屏 / 杀进程
+
+与 **§5 WebSocket** 互补：WS 仅 **App 在线** 时有效；**uni-push 2.0** 在 **后台/杀进程** 时由系统通知栏展示（Firebase/厂商通道在 **DCloud 开发者中心** 配置，**不要**在业务后端配 Firebase JSON）。
+
+**架构**：uni-app 客户端 → `uni.getPushClientId()` → 本后端 `PUT /push-tokens` 存 CID → 发通知时本后端 **POST uniCloud 云函数 URL** → 云函数 `uni-cloud-push.sendMessage` → 个推/托管 Firebase 下发。
+
+#### 4.6.1 注册本机 clientId（前端）
+
+- **方法 / 路径**：`PUT /api/v1/users/me/push-tokens`
+- **说明**：登录成功、manifest 已开 uni-push 2.0、用户授权通知后调用；`token` 为 **`uni.getPushClientId()`** 返回值（非自行对接 FCM token）。
+- **请求体**（JSON）：
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| platform | string | 是 | `ANDROID` 或 `IOS` |
+| token | string | 是 | uni-push **push_clientid**（CID），最长 512 |
+| deviceId | string | 是 | 客户端稳定设备 ID（自建 UUID），最长 64 |
+
+- **200 响应体**：`{ "deviceId": "...", "platform": "ANDROID" }`
+
+**uni-app 示例**：
+
+```javascript
+uni.getPushClientId({
+  success: (res) => {
+    const cid = res.cid;
+    // PUT /api/v1/users/me/push-tokens { platform, token: cid, deviceId }
+  }
+});
+```
+
+#### 4.6.2 注销（登出）
+
+```http
+DELETE /api/v1/users/me/push-tokens?deviceId={deviceId}
+DELETE /api/v1/users/me/push-tokens
+```
+
+- **204**：成功
+
+#### 4.6.3 服务端何时发系统推送
+
+站内通知写入且 WS 开关允许时，若 `app.mobile-push.enabled=true` 且配置了 **`app.mobile-push.unipush-cloud-url`**（云函数 URL 化地址），后端对该用户全部 CID 调用云函数。
+
+云函数请求体（后端自动构造，前端仅作参考）：
+
+```json
+{
+  "request_id": "唯一32位内字符串",
+  "cids": ["cid-1", "cid-2"],
+  "title": "通知标题",
+  "content": "通知正文",
+  "payload": { "type": "TASK_DUE_REMINDER", "notificationId": "10", "sessionId": "2" },
+  "force_notification": true,
+  "settings": { "ttl": 86400000 }
+}
+```
+
+**`payload`** 与 WebSocket 字段一致（`type`、`notificationId`、`sessionId`、`taskId`、`unreadCount` 等），点击通知在 `uni.onPushMessage` / 点击回调中读取。
+
+**对话回复**：默认不发系统推送；`app.mobile-push.chat-reply-enabled=true` 时发送。
+
+#### 4.6.4 运维必做（后端/你方）
+
+1. DCloud 开发者中心：开通 **uni-push 2.0**，**托管配置 Firebase**（及国内厂商通道）。  
+2. 部署云函数：仓库示例 `scripts/uni-push-cloud-function/index.js`，扩展库 **uni-cloud-push**，**URL 化** 得到 HTTPS 地址。  
+3. `.env`：`APP_MOBILE_PUSH_ENABLED=true`、`APP_UNIPUSH_CLOUD_URL=<云函数URL>`，可选 `APP_UNIPUSH_HTTP_SECRET`。  
+4. **不要**使用 `provider=fcm` 除非非 uni-app 客户端；默认 `unipush`。
+
+详见 **`md文档/环境与密钥配置.md`** §3.5。
 
 ---
 
@@ -260,6 +481,12 @@
 | `APP_COMPANION_MEMORY_SUMMARIZE_CRON` | 周总结 cron（默认周六 03:00） |
 | `APP_COMPANION_MEMORY_DIGEST_TIME` | 用户本地周六推送时刻（默认 08:00） |
 | `APP_COMPANION_MEMORY_DIGEST_PUSH` | 本周回顾是否 WebSocket 推送 |
+| `APP_MOBILE_PUSH_ENABLED` | 是否发系统推送 |
+| `APP_MOBILE_PUSH_PROVIDER` | `unipush`（默认）或 `fcm` |
+| `APP_UNIPUSH_CLOUD_URL` | uni-push 云函数 URL 化地址 |
+| `APP_UNIPUSH_HTTP_SECRET` | 云函数 URL 安全密钥（可选） |
+| `FCM_CREDENTIALS_PATH` | 仅 `provider=fcm` 时需要 |
+| `APP_MOBILE_PUSH_CHAT_REPLY` | AI 回复是否也发系统推送（默认 false） |
 
 ---
 
@@ -270,6 +497,7 @@
 | `scripts/mysql-ai-chat.sql` | 会话、消息、助手任务表 |
 | `scripts/mysql-ai-chat-task-reminder.sql` | 任务提醒字段 |
 | `scripts/mysql-in-app-notifications.sql` | 站内通知表 |
+| `scripts/mysql-existing-database-changes.sql` | 含 `user_push_devices` 增量 |
 
 ---
 

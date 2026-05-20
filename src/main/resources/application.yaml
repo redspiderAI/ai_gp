@@ -61,6 +61,8 @@ springdoc:
     path: /swagger-ui.html
     tags-sorter: alpha
     operations-sorter: alpha
+    # 语音转写接口：展开后显示浏览器录音测试面板
+    customJs: /swagger-speech-recorder.js
 
 app:
   upload-path: ${APP_UPLOAD_PATH:uploads}
@@ -134,6 +136,14 @@ app:
     digest-push-enabled: ${APP_COMPANION_MEMORY_DIGEST_PUSH:true}
     max-messages-per-week: ${APP_COMPANION_MEMORY_MAX_MSG_PER_WEEK:200}
     max-memory-chars: ${APP_COMPANION_MEMORY_MAX_CHARS:12000}
+  # 移动系统推送：默认 uni-push 2.0 云函数 URL（Firebase 在 DCloud 托管）；见 md文档/环境与密钥配置.md §3.5
+  mobile-push:
+    enabled: ${APP_MOBILE_PUSH_ENABLED:false}
+    provider: ${APP_MOBILE_PUSH_PROVIDER:unipush}
+    unipush-cloud-url: ${APP_UNIPUSH_CLOUD_URL:}
+    unipush-http-secret: ${APP_UNIPUSH_HTTP_SECRET:}
+    credentials-path: ${FCM_CREDENTIALS_PATH:}
+    chat-reply-enabled: ${APP_MOBILE_PUSH_CHAT_REPLY:false}
   # 语音转写：前端 multipart → Java → 内网 STT（见 md文档/本地语音转写-STT部署.md）
   speech:
     enabled: ${APP_SPEECH_ENABLED:true}

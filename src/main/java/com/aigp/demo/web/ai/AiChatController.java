@@ -4,12 +4,15 @@ import com.aigp.demo.service.AiChatService;
 import com.aigp.demo.web.ai.dto.AiChatMessageListResponse;
 import com.aigp.demo.web.ai.dto.AiChatRequest;
 import com.aigp.demo.web.ai.dto.AiChatResponse;
+import com.aigp.demo.web.ai.dto.AiChatSessionPageResponse;
 import com.aigp.demo.web.security.CurrentUser;
 import com.aigp.demo.web.security.JwtUserClaims;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,6 +20,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -43,10 +47,22 @@ public class AiChatController {
 				request.imageAssetIds());
 	}
 
+	@GetMapping("/chat/sessions")
+	@Operation(summary = "分页列出当前用户的历史会话（含 sessionId）")
+	public AiChatSessionPageResponse listSessions(
+			@CurrentUser JwtUserClaims user,
+			@RequestParam(defaultValue = "0") @Min(0) int page,
+			@RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
+		return aiChatService.listUserSessions(user.userId(), page, size);
+	}
+
 	@GetMapping("/chat/sessions/{sessionId}/messages")
-	@Operation(summary = "拉取会话历史消息（含「任务提醒」会话）")
+	@Operation(summary = "分页拉取会话历史消息（含「任务提醒」会话）")
 	public AiChatMessageListResponse listMessages(
-			@CurrentUser JwtUserClaims user, @PathVariable Long sessionId) {
-		return aiChatService.listSessionMessages(user.userId(), sessionId);
+			@CurrentUser JwtUserClaims user,
+			@PathVariable @Min(1) Long sessionId,
+			@RequestParam(defaultValue = "0") @Min(0) int page,
+			@RequestParam(defaultValue = "50") @Min(1) @Max(100) int size) {
+		return aiChatService.listSessionMessages(user.userId(), sessionId, page, size);
 	}
 }

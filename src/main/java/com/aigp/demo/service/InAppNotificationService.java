@@ -26,6 +26,7 @@ public class InAppNotificationService {
 	private final AppProperties appProperties;
 	private final UserInAppNotificationRepository userInAppNotificationRepository;
 	private final ChatRealtimePushService chatRealtimePushService;
+	private final MobilePushService mobilePushService;
 	private final AppUserService appUserService;
 
 	@Transactional
@@ -47,10 +48,11 @@ public class InAppNotificationService {
 		n.setMessageId(messageId);
 		n = userInAppNotificationRepository.save(n);
 
-		boolean push = shouldPushForType(type);
-		if (push) {
+		boolean allowRealtime = shouldPushForType(type);
+		Map<String, Object> payload = null;
+		if (allowRealtime) {
 			long unread = userInAppNotificationRepository.countByUser_IdAndReadAtIsNull(user.getId());
-			Map<String, Object> payload = new LinkedHashMap<>();
+			payload = new LinkedHashMap<>();
 			payload.put("type", type.name());
 			payload.put("notificationId", n.getId());
 			payload.put("sessionId", session == null ? null : session.getId());
@@ -60,6 +62,9 @@ public class InAppNotificationService {
 			payload.put("body", body);
 			payload.put("unreadCount", unread);
 			chatRealtimePushService.pushToUser(user.getId(), payload);
+		}
+		if (allowRealtime && appProperties.getMobilePush().isEnabled() && payload != null) {
+			deliverMobilePush(user.getId(), title, body, payload);
 		}
 		return n;
 	}
@@ -76,6 +81,9 @@ public class InAppNotificationService {
 		payload.put("contentPreview", preview(contentPreview));
 		payload.put("unreadCount", unread);
 		chatRealtimePushService.pushToUser(userId, payload);
+		if (appProperties.getMobilePush().isChatReplyEnabled()) {
+			deliverMobilePush(userId, "新消息", preview(contentPreview), payload);
+		}
 	}
 
 	private boolean shouldPushForType(InAppNotificationType type) {
@@ -83,6 +91,17 @@ public class InAppNotificationService {
 			return appProperties.getCompanionMemory().isDigestPushEnabled();
 		}
 		return appProperties.getTaskReminder().isPushEnabled();
+	}
+
+	/** 将 WebSocket 载荷转为 FCM data（值均为字符串）并发送系统推送 */
+	private void deliverMobilePush(Long userId, String title, String body, Map<String, Object> wsPayload) {
+		Map<String, String> data = new LinkedHashMap<>();
+		wsPayload.forEach((k, v) -> {
+			if (v != null) {
+				data.put(k, String.valueOf(v));
+			}
+		});
+		mobilePushService.sendToUser(userId, title, body, data);
 	}
 
 	private static String preview(String content) {

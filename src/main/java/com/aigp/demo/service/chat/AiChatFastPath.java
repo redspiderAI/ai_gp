@@ -58,6 +58,9 @@ public final class AiChatFastPath {
 		if (containsUnsupportedFeatureSignals(msg) || containsUnsupportedFeatureSignals(historySnippet)) {
 			return true;
 		}
+		if (containsPlanProposalSignals(msg) || containsPlanProposalSignals(historySnippet)) {
+			return true;
+		}
 		return false;
 	}
 
@@ -95,5 +98,18 @@ public final class AiChatFastPath {
 				|| text.contains("里程碑")
 				|| text.contains("目标拆解")
 				|| text.contains("长期目标");
+	}
+
+	private static boolean containsPlanProposalSignals(String text) {
+		if (!StringUtils.hasText(text)) {
+			return false;
+		}
+		return text.contains("复习计划")
+				|| text.contains("学习计划")
+				|| text.contains("制定计划")
+				|| text.contains("备考")
+				|| text.contains("复习方案")
+				|| text.contains("学习方案")
+				|| (text.contains("计划") && (text.contains("考试") || text.contains("六级") || text.contains("四级")));
 	}
 }

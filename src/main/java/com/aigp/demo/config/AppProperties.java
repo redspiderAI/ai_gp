@@ -20,6 +20,7 @@ public class AppProperties {
 	private final TaskReminder taskReminder = new TaskReminder();
 	private final CompanionMemory companionMemory = new CompanionMemory();
 	private final Speech speech = new Speech();
+	private final MobilePush mobilePush = new MobilePush();
 
 	/** 本地上传根目录（相对路径基于进程工作目录） */
 	private String uploadPath = "uploads";
@@ -180,5 +181,25 @@ public class AppProperties {
 		private long maxAudioBytes = 10L * 1024 * 1024;
 		private int connectTimeoutMs = 5000;
 		private int readTimeoutMs = 120000;
+	}
+
+	/**
+	 * 系统级移动推送：默认 uni-push 2.0（云函数 URL，Firebase 在 DCloud 托管）；可选 provider=fcm 直连。
+	 */
+	@Getter
+	@Setter
+	public static class MobilePush {
+		/** 总开关 */
+		private boolean enabled = false;
+		/** unipush（默认）或 fcm */
+		private String provider = "unipush";
+		/** uni-push 2.0：云函数 URL 化后的 HTTPS 地址（POST JSON） */
+		private String unipushCloudUrl = "";
+		/** uniCloud URL 化安全通讯密钥（与云函数校验一致，可空） */
+		private String unipushHttpSecret = "";
+		/** provider=fcm 时：Firebase 服务账号 JSON 路径 */
+		private String credentialsPath = "";
+		/** AI 对话回复是否发系统推送 */
+		private boolean chatReplyEnabled = false;
 	}
 }

@@ -13,6 +13,15 @@
 - **鉴权**：`Authorization: Bearer {accessToken}`
 - **Content-Type**：`multipart/form-data`（勿手设 `application/json`）
 
+### Swagger 浏览器录音（本地调试）
+
+1. 打开 `http://localhost:8000/swagger-ui.html`（端口以 `PORT` 为准）
+2. 右上角 **Authorize** 填入登录后的 `accessToken`
+3. 展开 **语音转写** → `POST /api/v1/speech/transcribe`
+4. 顶部会出现绿色边框的 **「浏览器录音测试」**：开始录音 → 停止 → **识别并上传**
+5. 识别结果展示在面板内，可复制到 `POST /api/v1/ai/chat` 的 `message`  
+   录音也会自动填入下方 Swagger 的 `file` 字段，仍可使用原生 **Execute** 调试。
+
 ### 1.1 请求
 
 | 字段 | 类型 | 必填 | 说明 |

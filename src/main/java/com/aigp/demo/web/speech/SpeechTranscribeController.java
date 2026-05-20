@@ -33,7 +33,11 @@ public class SpeechTranscribeController {
 	@PostMapping(value = "/transcribe", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
 	@Operation(
 			summary = "语音转文字",
-			description = "multipart 字段名必须为 file。成功后将 text 填入 POST /api/v1/ai/chat 的 message。")
+			description =
+					"""
+					multipart 字段名必须为 file。成功后将 text 填入 POST /api/v1/ai/chat 的 message。
+					Swagger 展开本接口后会出现「浏览器录音测试」面板（需 Authorize 填入 token）。
+					""")
 	public SpeechTranscribeResponse transcribe(
 			@CurrentUser JwtUserClaims user, @RequestPart("file") MultipartFile file) {
 		String text = speechTranscribeService.transcribe(user.userId(), file);

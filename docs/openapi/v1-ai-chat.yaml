@@ -18,6 +18,8 @@ tags:
     description: 用户助手待办（非成长计划 tasks）
   - name: 站内通知
     description: 任务提醒等通知
+  - name: 移动推送
+    description: uni-push 2.0 clientId（锁屏/杀进程系统通知）
 
 security:
   - bearerAuth: []
@@ -57,11 +59,49 @@ paths:
         '503':
           description: AI 提供商未配置（FEATURE_UNAVAILABLE）
 
+  /api/v1/ai/chat/sessions:
+    get:
+      tags: [AI 对话]
+      summary: 分页列出当前用户的历史会话
+      description: |
+        返回当前用户全部 AI 对话会话摘要（含 sessionId），按 `updatedAt` 降序。
+        仅 JWT 对应用户本人的会话；不暴露他人数据。
+      operationId: listAiChatSessions
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          description: 页码，从 0 起
+        - name: size
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          description: 每页条数，最大 100
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AiChatSessionPageResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
   /api/v1/ai/chat/sessions/{sessionId}/messages:
     get:
       tags: [AI 对话]
-      summary: 拉取会话历史消息
-      description: 按时间升序返回已落库的 USER/ASSISTANT 消息；含「任务提醒」会话。
+      summary: 分页拉取会话历史消息
+      description: 按时间升序分页返回已落库的 USER/ASSISTANT 消息；含「任务提醒」会话。须为当前用户所属会话。
       operationId: listAiChatMessages
       parameters:
         - name: sessionId
@@ -70,6 +110,22 @@ paths:
           schema:
             type: integer
             format: int64
+            minimum: 1
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: size
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
       responses:
         '200':
           description: 成功
@@ -171,6 +227,47 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
+  /api/v1/users/me/push-tokens:
+    put:
+      tags: [移动推送]
+      summary: 注册或更新 uni-push clientId
+      description: uni.getPushClientId() 上报；用于系统通知栏（后台/杀进程）。须 JWT。
+      operationId: upsertPushToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertPushTokenRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PushTokenRegisteredResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    delete:
+      tags: [移动推送]
+      summary: 注销推送 token（登出）
+      operationId: deletePushToken
+      parameters:
+        - name: deviceId
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 64
+          description: 不传则删除该用户全部已注册设备
+      responses:
+        '204':
+          description: 已注销
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -215,6 +312,11 @@ components:
         assistantMessageId:
           type: integer
           format: int64
+        planProposal:
+          nullable: true
+          allOf:
+            - $ref: 'v1-growth-plan-proposals.yaml#/components/schemas/AiChatPlanProposalHint'
+          description: 本轮若已生成待确认成长计划草案则非空
 
     AiChatMessageItemResponse:
       type: object
@@ -232,6 +334,45 @@ components:
           type: string
           format: date-time
 
+    AiChatSessionItemResponse:
+      type: object
+      properties:
+        sessionId:
+          type: integer
+          format: int64
+        title:
+          type: string
+          nullable: true
+        provider:
+          type: string
+        model:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AiChatSessionPageResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AiChatSessionItemResponse'
+        page:
+          type: integer
+        size:
+          type: integer
+        totalElements:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+        hasNext:
+          type: boolean
+
     AiChatMessageListResponse:
       type: object
       properties:
@@ -243,10 +384,22 @@ components:
           nullable: true
         count:
           type: integer
+          description: 本页消息条数
         messages:
           type: array
           items:
             $ref: '#/components/schemas/AiChatMessageItemResponse'
+        page:
+          type: integer
+        size:
+          type: integer
+        totalElements:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+        hasNext:
+          type: boolean
 
     UserAssistantTaskItemResponse:
       type: object
@@ -336,6 +489,30 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/InAppNotificationItemResponse'
+
+    UpsertPushTokenRequest:
+      type: object
+      required: [platform, token, deviceId]
+      properties:
+        platform:
+          type: string
+          enum: [ANDROID, IOS]
+        token:
+          type: string
+          maxLength: 512
+          description: uni-push push_clientid（CID）
+        deviceId:
+          type: string
+          maxLength: 64
+          description: 客户端稳定设备 ID
+
+    PushTokenRegisteredResponse:
+      type: object
+      properties:
+        deviceId:
+          type: string
+        platform:
+          type: string
 
     ErrorBody:
       type: object

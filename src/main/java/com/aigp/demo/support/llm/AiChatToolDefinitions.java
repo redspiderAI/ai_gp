@@ -130,6 +130,101 @@ public final class AiChatToolDefinitions {
 								List.of("taskId"))));
 	}
 
+	/**
+	 * 成长计划草案工具：仅保存待用户确认的方案，不直接写入 goals/plans/tasks。
+	 */
+	public static List<Map<String, Object>> planProposalTools() {
+		return List.of(
+				tool(
+						"propose_growth_plan",
+						"""
+						提交一份结构化成长/学习计划草案（待用户在 App 内确认后才入库）。
+						用户要制定复习计划、备考方案、N天学习计划时必须调用本工具；
+						禁止用 create_task 批量代替整份计划。
+						调用成功后向用户展示 summary 与每日安排要点，并说明需点击确认后才会开始每日提醒。
+						""",
+						Map.of(
+								"type",
+								"object",
+								"properties",
+								Map.of(
+										"version",
+										Map.of("type", "integer", "description", "固定填 1"),
+										"goalTitle",
+										Map.of("type", "string", "description", "目标标题，如「一个月通过六级」"),
+										"goalDescription",
+										Map.of("type", "string", "description", "目标说明，可选"),
+										"domain",
+										Map.of(
+												"type",
+												"string",
+												"enum",
+												List.of(
+														"SKILLS",
+														"CERTIFICATION",
+														"LANGUAGE",
+														"SOFT_SKILLS",
+														"SIDE_HUSTLE"),
+												"description",
+												"成长领域，考试类建议 LANGUAGE"),
+										"deadline",
+										Map.of("type", "string", "description", "目标截止日 yyyy-MM-dd"),
+										"summary",
+										Map.of("type", "string", "description", "给用户看的计划总述（2～6 句）"),
+										"dailyReminderTime",
+										Map.of(
+												"type",
+												"string",
+												"description",
+												"每日提醒时刻 HH:mm，默认 08:00"),
+										"days",
+										Map.of(
+												"type",
+												"array",
+												"description",
+												"按天的学习任务，最多 31 天",
+												"items",
+												Map.of(
+														"type",
+														"object",
+														"properties",
+														Map.of(
+																"dayIndex",
+																Map.of(
+																		"type",
+																		"integer",
+																		"description",
+																		"第几天，从 1 起"),
+																"scheduledDate",
+																Map.of(
+																		"type",
+																		"string",
+																		"description",
+																		"执行日 yyyy-MM-dd"),
+																"title",
+																Map.of("type", "string", "description", "当日任务标题"),
+																"description",
+																Map.of(
+																		"type",
+																		"string",
+																		"description",
+																		"当日任务说明"),
+																"estimatedMinutes",
+																Map.of(
+																		"type",
+																		"integer",
+																		"description",
+																		"预计分钟数 15～480")),
+														"required",
+														List.of(
+																"dayIndex",
+																"scheduledDate",
+																"title",
+																"estimatedMinutes")))),
+								"required",
+								List.of("version", "goalTitle", "summary", "days"))));
+	}
+
 	private static Map<String, Object> tool(String name, String description, Map<String, Object> parameters) {
 		Map<String, Object> fn = new LinkedHashMap<>();
 		fn.put("name", name);

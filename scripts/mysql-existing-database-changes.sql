@@ -20,3 +20,37 @@ CREATE TABLE IF NOT EXISTS user_companion_memory (
 ALTER TABLE user_notification_settings
     ADD COLUMN weekly_companion_digest TINYINT(1) NOT NULL DEFAULT 1
         COMMENT '是否接收每周六陪伴回顾' AFTER daily_task_reminder;
+
+-- AI 成长计划草案（用户确认前不落 goals/plans/tasks）
+CREATE TABLE IF NOT EXISTS growth_plan_proposals (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id         BIGINT UNSIGNED NOT NULL COMMENT 'users.id',
+    session_id      BIGINT UNSIGNED DEFAULT NULL COMMENT '来源 AI 对话会话',
+    status          ENUM('PENDING','CONFIRMED','REJECTED') NOT NULL DEFAULT 'PENDING',
+    payload_json    JSON            NOT NULL COMMENT '结构化计划，见 GrowthPlanProposalPayload version=1',
+    goal_id         BIGINT UNSIGNED DEFAULT NULL COMMENT '确认后关联 goals.id',
+    plan_id         BIGINT UNSIGNED DEFAULT NULL COMMENT '确认后关联 plans.id',
+    expires_at      DATETIME        DEFAULT NULL COMMENT '草案过期时间',
+    confirmed_at    DATETIME        DEFAULT NULL,
+    rejected_at     DATETIME        DEFAULT NULL,
+    created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_gpp_user_status (user_id, status),
+    CONSTRAINT fk_gpp_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='成长计划 AI 草案';
+
+-- uni-push 2.0 设备 clientId（列名 fcm_token 历史兼容；存 push_clientid）
+CREATE TABLE IF NOT EXISTS user_push_devices (
+    id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id     BIGINT UNSIGNED NOT NULL COMMENT 'users.id',
+    device_id   VARCHAR(64)     NOT NULL COMMENT '客户端设备标识',
+    platform    ENUM('ANDROID','IOS') NOT NULL,
+    fcm_token   VARCHAR(512)    NOT NULL COMMENT 'uni.getPushClientId 返回值',
+    created_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_push_user_device (user_id, device_id),
+    KEY idx_push_user (user_id),
+    CONSTRAINT fk_push_device_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户 FCM 推送设备';

@@ -4,6 +4,7 @@ import com.aigp.demo.domain.chat.AiChatMessage;
 import com.aigp.demo.domain.enums.ChatMessageRole;
 import java.time.LocalDateTime;
 import java.util.List;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -14,6 +15,8 @@ public interface AiChatMessageRepository extends JpaRepository<AiChatMessage, Lo
 	List<AiChatMessage> findBySession_IdOrderByCreatedAtDesc(Long sessionId, Pageable pageable);
 
 	List<AiChatMessage> findBySession_IdOrderByCreatedAtAsc(Long sessionId);
+
+	Page<AiChatMessage> findBySession_IdOrderByCreatedAtAsc(Long sessionId, Pageable pageable);
 
 	/**
 	 * 统计时间窗内有对话的用户（排除「任务提醒」自动会话），供周总结扫描。

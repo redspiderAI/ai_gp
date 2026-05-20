@@ -8,10 +8,11 @@ public record AiChatDataPlan(
 		boolean needUserProfile,
 		boolean needTaskList,
 		boolean needTaskTools,
+		boolean needPlanProposalTools,
 		String taskListStatus,
 		String reason) {
 
 	public static AiChatDataPlan defaults() {
-		return new AiChatDataPlan(true, true, true, true, "OPEN", "默认加载常用上下文");
+		return new AiChatDataPlan(true, true, true, true, false, "OPEN", "默认加载常用上下文");
 	}
 }

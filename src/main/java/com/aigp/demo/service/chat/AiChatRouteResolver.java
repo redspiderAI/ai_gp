@@ -60,6 +60,11 @@ public class AiChatRouteResolver {
 			caps.add(AiChatCapabilityId.CHAT_HISTORY);
 			caps.add(AiChatCapabilityId.ASSISTANT_TASKS);
 		}
+		if (looksLikePlanProposalRequest(msg, historySnippet)) {
+			caps.add(AiChatCapabilityId.PLAN_PROPOSAL);
+			caps.add(AiChatCapabilityId.USER_PROFILE);
+			caps.add(AiChatCapabilityId.CHAT_HISTORY);
+		}
 
 		caps.removeIf(c -> !c.available());
 		for (AiChatCapabilityId u : List.copyOf(unsupported)) {
@@ -146,6 +151,27 @@ public class AiChatRouteResolver {
 		}
 		String s = node.asText();
 		return s.isBlank() ? null : s.trim();
+	}
+
+	private static boolean looksLikePlanProposalRequest(String msg, String historySnippet) {
+		if (containsPlanKeyword(msg)) {
+			return true;
+		}
+		return containsPlanKeyword(historySnippet)
+				&& StringUtils.hasText(msg)
+				&& (msg.contains("确认") || msg.contains("同意") || msg.contains("修改") || msg.length() <= 24);
+	}
+
+	private static boolean containsPlanKeyword(String text) {
+		if (!StringUtils.hasText(text)) {
+			return false;
+		}
+		return text.contains("复习计划")
+				|| text.contains("学习计划")
+				|| text.contains("制定计划")
+				|| text.contains("备考")
+				|| text.contains("复习方案")
+				|| (text.contains("计划") && (text.contains("考试") || text.contains("六级") || text.contains("四级")));
 	}
 
 	private static boolean looksLikeDateFollowUp(String msg, String historySnippet) {

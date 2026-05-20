@@ -15,6 +15,8 @@
 
 助手任务由 AI 通过后端「工具」增删改查，**不会**自动写入成长计划的 `tasks` 表。
 
+**成长计划草案（新）**：用户要「制定复习/学习计划」时，AI 调用 `propose_growth_plan` 生成**待确认**草案（表 `growth_plan_proposals`），对话响应中带 `planProposal.proposalId`。用户在 App 确认后，后端写入 `goals`/`plans`/`tasks`，并同步每日助手待办用于到点提醒。详见 **`md文档/HTTP接口-成长计划草案.md`**。
+
 ---
 
 ## 2. 用户主动发一条消息（主流程）
@@ -52,9 +54,13 @@ flowchart TD
    **快速路由**（`app.chat.fast-path-enabled=true`，默认开启）：问候、短句闲聊且不含待办/成长计划关键词时，**跳过规划 LLM**，仅启用 `chat`（续聊时加 `chat_history`），显著降低延迟。
 4. **意图分析**（多阶段开启且本轮路由含 `assistant_tasks` 时）：再让大模型用几句话总结用户意图，**仅给正式回答参考**，不会原样展示给用户。纯闲聊路由会跳过本步。
 5. **正式回答**：将「系统说明书 +（可选）历史 + 用户本轮输入」发给配置的 AI 提供商（默认 **mimo**，可指定 **ollama**）。
-6. **任务工具**：当用户要记待办、查任务、改状态等，大模型可多次调用后端工具（默认最多 5 轮），工具结果再喂回模型，最后输出面向用户的一段话。
-7. **落库规则**：数据库里**只存两条**——本轮用户消息、本轮助手最终回复。中间的规划、意图分析、工具调用过程**不写入** `ai_chat_messages`。
-8. **实时推送**：若客户端已连接 WebSocket，会收到 `type=CHAT_REPLY` 的 JSON（含会话 id、消息 id、正文预览等）。
+6. **工具**：大模型可多次调用后端工具（默认最多 5 轮），包括：
+   - **助手待办**：`create_task` / `list_tasks` 等；
+   - **计划草案**：`propose_growth_plan`（制定学习计划时，**须先出草案**，禁止批量 `create_task` 代替整份计划）。
+   工具结果再喂回模型，最后输出面向用户的一段话；若生成了草案，HTTP 响应附带 `planProposal`。
+7. **用户确认计划**（App 调用，非对话内）：`POST /api/v1/growth/plan-proposals/{id}/confirm` → 入库并开始每日 `dueAt` 提醒。
+8. **落库规则**：数据库里**只存两条**——本轮用户消息、本轮助手最终回复。中间的规划、意图分析、工具调用过程**不写入** `ai_chat_messages`（计划草案存 `growth_plan_proposals`）。
+9. **实时推送**：若客户端已连接 WebSocket，会收到 `type=CHAT_REPLY` 的 JSON（含会话 id、消息 id、正文预览等）。
 
 ### 2.2 相关配置（`application.yaml` / 环境变量）
 
@@ -220,7 +226,18 @@ flowchart TD
 
 `unreadCount` 为当前用户**站内通知**未读条数（不含聊天已读状态）。
 
+### 6.2 移动系统推送（uni-push 2.0，后台/杀进程）
+
+| 项目 | 说明 |
+|------|------|
+| 设备注册 | `PUT /api/v1/users/me/push-tokens`；`token` = `uni.getPushClientId()` |
+| 触发 | 站内通知同时，在 `mobile-push.enabled` + `unipush-cloud-url` 配置时 POST 云函数 URL |
+| Firebase | 在 **DCloud 开发者中心** 托管配置，不由 Java 直连 |
+| 与 WS 关系 | WS = 在线即时；uni-push = 系统通知栏，**互不替代** |
+| 云函数示例 | `scripts/uni-push-cloud-function/index.js` |
+
 ---
+
 
 ## 7. 站内通知
 

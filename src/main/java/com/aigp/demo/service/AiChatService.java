@@ -16,6 +16,11 @@ import com.aigp.demo.support.llm.LlmMessageContentBuilder;
 import com.aigp.demo.support.llm.OpenAiCompatibleChatClient;
 import com.aigp.demo.web.ai.dto.AiChatMessageItemResponse;
 import com.aigp.demo.web.ai.dto.AiChatMessageListResponse;
+import com.aigp.demo.web.ai.dto.AiChatPlanProposalHint;
+import com.aigp.demo.web.ai.dto.AiChatSessionItemResponse;
+import com.aigp.demo.web.ai.dto.AiChatSessionPageResponse;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.aigp.demo.service.chat.AiChatCapabilityCatalog;
 import com.aigp.demo.service.chat.AiChatCapabilityId;
 import com.aigp.demo.service.chat.AiChatIntentSignals;
@@ -30,8 +35,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Pattern;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -42,10 +48,10 @@ import org.springframework.util.StringUtils;
  * AI 对话编排：① 规划需加载的数据 → ② 按规划拉取上下文并做意图分析 → ③ 多轮工具调用生成回复。
  * 仅将「用户本轮输入」与「最终助手回复」写入 {@code ai_chat_messages}。
  */
-@Slf4j
 @Service
-@RequiredArgsConstructor
 public class AiChatService {
+
+	private static final Logger log = LoggerFactory.getLogger(AiChatService.class);
 
 	private static final Pattern FAKE_TOOL_CALL =
 			Pattern.compile("(?is)<\\s*tool_call\\b|</\\s*tool_call\\s*>|<\\s*tool\\s+name\\s*=");
@@ -53,6 +59,13 @@ public class AiChatService {
 			Pattern.compile("(?is)\"action\"\\s*:\\s*\"list_tasks\"|\"action\"\\s*:\\s*\"create_task\"");
 	private static final Pattern MOSTLY_ASCII =
 			Pattern.compile("^[\\x00-\\x7F\\s<>/=\"'\\-_]+$");
+
+	/** 会话列表默认每页条数 */
+	private static final int DEFAULT_SESSION_PAGE_SIZE = 20;
+	/** 会话消息默认每页条数 */
+	private static final int DEFAULT_MESSAGE_PAGE_SIZE = 50;
+	/** 分页 size 上限，防止一次拉全表 */
+	private static final int MAX_PAGE_SIZE = 100;
 
 	private final AppProperties appProperties;
 	private final AppUserService appUserService;
@@ -69,6 +82,42 @@ public class AiChatService {
 	private final MediaAssetService mediaAssetService;
 	private final ChatProviderResolver chatProviderResolver;
 	private final UserLlmSettingsService userLlmSettingsService;
+	private final ObjectMapper objectMapper;
+
+	public AiChatService(
+			AppProperties appProperties,
+			AppUserService appUserService,
+			AiChatSessionRepository aiChatSessionRepository,
+			AiChatMessageRepository aiChatMessageRepository,
+			OpenAiCompatibleChatClient openAiCompatibleChatClient,
+			AiChatToolExecutor aiChatToolExecutor,
+			AiChatUserContextBuilder aiChatUserContextBuilder,
+			UserAssistantTaskService userAssistantTaskService,
+			AiChatPlanningService aiChatPlanningService,
+			AiChatRouteResolver routeResolver,
+			InAppNotificationService inAppNotificationService,
+			AiChatPipelineDebugLog pipelineDebugLog,
+			MediaAssetService mediaAssetService,
+			ChatProviderResolver chatProviderResolver,
+			UserLlmSettingsService userLlmSettingsService,
+			ObjectMapper objectMapper) {
+		this.appProperties = appProperties;
+		this.appUserService = appUserService;
+		this.aiChatSessionRepository = aiChatSessionRepository;
+		this.aiChatMessageRepository = aiChatMessageRepository;
+		this.openAiCompatibleChatClient = openAiCompatibleChatClient;
+		this.aiChatToolExecutor = aiChatToolExecutor;
+		this.aiChatUserContextBuilder = aiChatUserContextBuilder;
+		this.userAssistantTaskService = userAssistantTaskService;
+		this.aiChatPlanningService = aiChatPlanningService;
+		this.routeResolver = routeResolver;
+		this.inAppNotificationService = inAppNotificationService;
+		this.pipelineDebugLog = pipelineDebugLog;
+		this.mediaAssetService = mediaAssetService;
+		this.chatProviderResolver = chatProviderResolver;
+		this.userLlmSettingsService = userLlmSettingsService;
+		this.objectMapper = objectMapper;
+	}
 
 	@Transactional
 	public AiChatResponse chat(
@@ -115,6 +164,7 @@ public class AiChatService {
 		AppProperties.ChatProvider providerConfig = chatProviderResolver.resolveForUser(userId, providerKey);
 
 		AiChatSession session = resolveSession(user, sessionId, providerKey, providerConfig.getModel());
+		AiChatRequestContext.setSessionId(session.getId());
 		pipelineDebugLog.step(
 				"session",
 				"sessionId=%s provider=%s model=%s title=%s",
@@ -163,13 +213,14 @@ public class AiChatService {
 
 		String intentHint = null;
 		if (appProperties.getChat().isMultiPhaseEnabled()
-				&& route.hasCapability(AiChatCapabilityId.ASSISTANT_TASKS)) {
+				&& (route.hasCapability(AiChatCapabilityId.ASSISTANT_TASKS)
+						|| route.hasCapability(AiChatCapabilityId.PLAN_PROPOSAL))) {
 			intentHint = aiChatPlanningService.analyzeUserIntent(
 					providerConfig, userMessage, sessionHistoryForIntent);
 			route = alignRouteWithIntentHint(route, intentHint);
 			pipelineDebugLog.step("route-after-intent", "capabilities=%s", route.capabilities());
 		} else if (appProperties.getChat().isMultiPhaseEnabled()) {
-			pipelineDebugLog.step("intent", "跳过：本轮未启用 assistant_tasks");
+			pipelineDebugLog.step("intent", "跳过：本轮未启用 assistant_tasks / plan_proposal");
 		}
 
 		AiChatDataPlan plan = route.toDataPlan();
@@ -195,14 +246,16 @@ public class AiChatService {
 		boolean hasImages = !imageAssetIds.isEmpty() || historyPayload.hasImages();
 		AppProperties.ChatProvider executionProvider = resolveExecutionProvider(userId, providerKey, hasImages);
 
-		List<Map<String, Object>> tools = plan.needTaskTools() ? AiChatToolDefinitions.taskTools() : List.of();
+		List<Map<String, Object>> tools = buildExecutionTools(plan);
 		pipelineDebugLog.step(
 				"execute-pre",
 				"llmMessages=%s toolsEnabled=%s vision=%s",
 				llmMessages.size(),
 				!tools.isEmpty(),
 				hasImages);
-		String assistantText = runExecutionLoop(userId, executionProvider, llmMessages, tools);
+		ExecutionResult execution = runExecutionLoop(userId, executionProvider, llmMessages, tools);
+		String assistantText = execution.text();
+		AiChatPlanProposalHint planProposal = execution.planProposal();
 		AiChatMessage savedUser = persistMessage(session, ChatMessageRole.USER, userMessage, null, null);
 		mediaAssetService.linkAssetsToMessage(savedUser.getId(), imageAssetIds);
 		AiChatMessage savedAssistant =
@@ -222,24 +275,56 @@ public class AiChatService {
 				savedAssistant.getId(),
 				AiChatCapabilityCatalog.toIdStrings(List.copyOf(route.capabilities())),
 				AiChatCapabilityCatalog.toIdStrings(route.unsupported()),
-				userImageUrls);
+				userImageUrls,
+				planProposal);
 		pipelineDebugLog.endConversationTrace(
 				true,
 				"sessionId="
 						+ session.getId()
 						+ " reply="
-						+ truncate(assistantText, 500));
+						+ truncate(assistantText, 500)
+						+ (planProposal != null ? " proposalId=" + planProposal.proposalId() : ""));
 		return response;
 	}
 
+	/**
+	 * 分页列出当前用户的 AI 对话会话（按最近更新时间倒序）。
+	 */
 	@Transactional(readOnly = true)
-	public AiChatMessageListResponse listSessionMessages(Long userId, Long sessionId) {
+	public AiChatSessionPageResponse listUserSessions(Long userId, int page, int size) {
 		appUserService.requireActive(userId);
+		int safePage = Math.max(0, page);
+		int safeSize = clampPageSize(size, DEFAULT_SESSION_PAGE_SIZE);
+		Page<AiChatSession> result = aiChatSessionRepository.findByUser_IdOrderByUpdatedAtDesc(
+				userId, PageRequest.of(safePage, safeSize));
+		List<AiChatSessionItemResponse> items =
+				result.getContent().stream().map(AiChatSessionItemResponse::fromEntity).toList();
+		return new AiChatSessionPageResponse(
+				items,
+				result.getNumber(),
+				result.getSize(),
+				result.getTotalElements(),
+				result.getTotalPages(),
+				result.hasNext());
+	}
+
+	/**
+	 * 分页拉取指定会话的历史消息（须属于当前用户；按 createdAt 升序）。
+	 */
+	@Transactional(readOnly = true)
+	public AiChatMessageListResponse listSessionMessages(Long userId, Long sessionId, int page, int size) {
+		appUserService.requireActive(userId);
+		if (sessionId == null || sessionId <= 0) {
+			throw new IllegalArgumentException("sessionId 无效");
+		}
+		int safePage = Math.max(0, page);
+		int safeSize = clampPageSize(size, DEFAULT_MESSAGE_PAGE_SIZE);
 		AiChatSession session = aiChatSessionRepository
 				.findByIdAndUser_Id(sessionId, userId)
 				.orElseThrow(() -> new NotFoundException("对话会话不存在: id=" + sessionId));
-		List<AiChatMessage> entities =
-				aiChatMessageRepository.findBySession_IdOrderByCreatedAtAsc(sessionId);
+		Page<AiChatMessage> result = aiChatMessageRepository.findBySession_IdOrderByCreatedAtAsc(
+				sessionId, PageRequest.of(safePage, safeSize));
+		List<AiChatMessage> entities = result.getContent();
 		List<Long> messageIds = entities.stream().map(AiChatMessage::getId).toList();
 		Map<Long, List<Long>> assetIdsByMessage = mediaAssetService.findMessageAssetIdsByMessageIds(messageIds);
 		List<AiChatMessageItemResponse> messages = entities.stream()
@@ -249,13 +334,42 @@ public class AiChatService {
 					return AiChatMessageItemResponse.fromEntity(m, urls);
 				})
 				.toList();
-		return new AiChatMessageListResponse(session.getId(), session.getTitle(), messages.size(), messages);
+		return new AiChatMessageListResponse(
+				session.getId(),
+				session.getTitle(),
+				messages.size(),
+				messages,
+				result.getNumber(),
+				result.getSize(),
+				result.getTotalElements(),
+				result.getTotalPages(),
+				result.hasNext());
+	}
+
+	private static int clampPageSize(int size, int defaultSize) {
+		if (size <= 0) {
+			return defaultSize;
+		}
+		return Math.min(size, MAX_PAGE_SIZE);
 	}
 
 	/**
 	 * 执行阶段：可含工具多轮；中间 assistant/tool 消息仅存在于内存，不落库。
 	 */
-	private String runExecutionLoop(
+	private record ExecutionResult(String text, AiChatPlanProposalHint planProposal) {}
+
+	private static List<Map<String, Object>> buildExecutionTools(AiChatDataPlan plan) {
+		List<Map<String, Object>> tools = new ArrayList<>();
+		if (plan.needTaskTools()) {
+			tools.addAll(AiChatToolDefinitions.taskTools());
+		}
+		if (plan.needPlanProposalTools()) {
+			tools.addAll(AiChatToolDefinitions.planProposalTools());
+		}
+		return tools;
+	}
+
+	private ExecutionResult runExecutionLoop(
 			Long userId,
 			AppProperties.ChatProvider providerConfig,
 			List<Map<String, Object>> messages,
@@ -263,8 +377,9 @@ public class AiChatService {
 		if (tools == null || tools.isEmpty()) {
 			ChatCompletionResult result =
 					openAiCompatibleChatClient.chat(providerConfig, messages, null, "execute");
-			return finalizeAssistantText(result.content());
+			return new ExecutionResult(finalizeAssistantText(result.content()), null);
 		}
+		AiChatPlanProposalHint planProposal = null;
 		int maxRounds = Math.max(1, appProperties.getChat().getMaxToolRounds());
 		for (int round = 0; round < maxRounds; round++) {
 			String phase = "execute-r" + (round + 1);
@@ -272,7 +387,7 @@ public class AiChatService {
 			ChatCompletionResult result = openAiCompatibleChatClient.chat(providerConfig, messages, tools, phase);
 			if (!result.hasToolCalls()) {
 				pipelineDebugLog.step(phase, "无 tool_calls，结束执行环");
-				return finalizeAssistantText(result.content());
+				return new ExecutionResult(finalizeAssistantText(result.content()), planProposal);
 			}
 
 			Map<String, Object> assistantMsg = new LinkedHashMap<>();
@@ -300,11 +415,49 @@ public class AiChatService {
 			for (ChatCompletionResult.ToolCallPayload tc : result.toolCalls()) {
 				String toolResult =
 						aiChatToolExecutor.execute(userId, tc.name(), tc.argumentsJson(), phase, round + 1);
+				if ("propose_growth_plan".equals(tc.name())) {
+					AiChatPlanProposalHint hint = parsePlanProposalHint(toolResult);
+					if (hint != null) {
+						planProposal = hint;
+					}
+				}
 				messages.add(Map.of("role", "tool", "tool_call_id", tc.id(), "content", toolResult));
 			}
 		}
 		pipelineDebugLog.step("execute", "超过最大工具轮次 max=%s", maxRounds);
 		throw new IllegalStateException("任务工具调用轮次过多，请简化问题后重试");
+	}
+
+	private static String textOrNull(JsonNode node) {
+		if (node == null || node.isMissingNode() || node.isNull()) {
+			return null;
+		}
+		String s = node.asText().trim();
+		return s.isEmpty() ? null : s;
+	}
+
+	private AiChatPlanProposalHint parsePlanProposalHint(String toolResultJson) {
+		if (!StringUtils.hasText(toolResultJson)) {
+			return null;
+		}
+		try {
+			JsonNode node = objectMapper.readTree(toolResultJson);
+			if (!node.path("ok").asBoolean(false) || node.path("proposalId").asLong(0) <= 0) {
+				return null;
+			}
+			return new AiChatPlanProposalHint(
+					node.path("proposalId").asLong(),
+					node.path("status").asText("PENDING"),
+					node.path("goalTitle").asText(""),
+					node.path("summary").asText(""),
+					node.path("dayCount").asInt(0),
+					textOrNull(node.path("startDate")),
+					textOrNull(node.path("endDate")),
+					node.path("dailyReminderTime").asText("08:00"));
+		} catch (Exception e) {
+			log.warn("解析计划草案工具结果失败: {}", e.getMessage());
+			return null;
+		}
 	}
 
 	private static String finalizeAssistantText(String content) {
@@ -353,19 +506,29 @@ public class AiChatService {
 				savedAssistant.getId(),
 				AiChatCapabilityCatalog.toIdStrings(List.copyOf(route.capabilities())),
 				AiChatCapabilityCatalog.toIdStrings(route.unsupported()),
-				userImageUrls);
+				userImageUrls,
+				null);
 	}
 
 	private static AiChatRoutePlan alignRouteWithIntentHint(AiChatRoutePlan route, String intentHint) {
 		if (route == null || !StringUtils.hasText(intentHint)) {
 			return route;
 		}
-		if (!AiChatIntentSignals.suggestsTaskTools(intentHint)
-				|| route.hasCapability(AiChatCapabilityId.ASSISTANT_TASKS)) {
+		java.util.Set<AiChatCapabilityId> caps = new java.util.LinkedHashSet<>(route.capabilities());
+		boolean changed = false;
+		if (AiChatIntentSignals.suggestsTaskTools(intentHint)
+				&& !route.hasCapability(AiChatCapabilityId.ASSISTANT_TASKS)) {
+			caps.add(AiChatCapabilityId.ASSISTANT_TASKS);
+			changed = true;
+		}
+		if (AiChatIntentSignals.suggestsPlanProposalTools(intentHint)
+				&& !route.hasCapability(AiChatCapabilityId.PLAN_PROPOSAL)) {
+			caps.add(AiChatCapabilityId.PLAN_PROPOSAL);
+			changed = true;
+		}
+		if (!changed) {
 			return route;
 		}
-		java.util.Set<AiChatCapabilityId> caps = new java.util.LinkedHashSet<>(route.capabilities());
-		caps.add(AiChatCapabilityId.ASSISTANT_TASKS);
 		return new AiChatRoutePlan(caps, route.unsupported(), route.taskListStatus(), route.reason());
 	}
 

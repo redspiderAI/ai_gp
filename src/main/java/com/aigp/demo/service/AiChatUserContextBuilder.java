@@ -48,6 +48,16 @@ public class AiChatUserContextBuilder {
 			用户问「未来几天」「未来N天」时：list_tasks 的 dueFrom 填明天（yyyy-MM-dd），dueTo 按天数填截止日；不要把「今天」算进未来。
 			""";
 
+	private static final String PLAN_PROPOSAL_TOOL_RULES =
+			"""
+
+			【本轮须提交成长计划草案】
+			- 用户要制定/复习/学习计划、备考方案（如六级一个月）时：必须调用 propose_growth_plan，填入完整 days 数组（每天一条，scheduledDate 连续或按周合理分布）。
+			- 禁止在未确认前用 create_task 批量落库整份计划；确认由用户在 App 点击「确认计划」后由后端执行。
+			- 工具成功后：用友好中文概括 goalTitle、天数、每日提醒时刻，并明确提示「请查看计划详情并确认后才会开始每日提醒」。
+			- dailyReminderTime 默认 08:00；结合用户 weeklyHours 与偏好可调整为 07:00～21:00 的整点或半点。
+			""";
+
 	private final UserIdentityRepository userIdentityRepository;
 	private final CompanionMemoryService companionMemoryService;
 
@@ -77,6 +87,9 @@ public class AiChatUserContextBuilder {
 		}
 		if (plan != null && plan.needTaskTools()) {
 			sb.append(TASK_TOOL_RULES);
+		}
+		if (plan != null && plan.needPlanProposalTools()) {
+			sb.append(PLAN_PROPOSAL_TOOL_RULES);
 		}
 		if (plan == null || plan.needUserProfile()) {
 			sb.append("\n【用户基本信息】\n");

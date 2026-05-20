@@ -39,9 +39,10 @@ public final class AiChatCapabilityCatalog {
 
 				规则：
 				- 查/记/改助手待办 → capabilities 含 assistant_tasks（查也必须带，不能只加载摘要）
+				- 用户要制定/复习/学习计划、备考方案、一个月计划等 → capabilities 含 plan_proposal（须调用 propose_growth_plan，勿直接 create_task 批量落库）
 				- 续聊或指代上文 → 含 chat_history
 				- 需要称呼或个性化 → 含 user_profile
-				- 用户要成长计划任务、目标拆解等 → 只写 unsupported，不要编造数据
+				- 用户要直接操作已入库的成长计划任务表、里程碑 CRUD → 写 unsupported（growth_plan_tasks/goals），不要编造数据
 				""");
 		return sb.toString();
 	}

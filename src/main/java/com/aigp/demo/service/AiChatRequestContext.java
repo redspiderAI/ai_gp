@@ -7,6 +7,7 @@ public final class AiChatRequestContext {
 
 	private static final ThreadLocal<String> USER_MESSAGE = new ThreadLocal<>();
 	private static final ThreadLocal<java.util.List<Long>> MESSAGE_IMAGE_ASSET_IDS = new ThreadLocal<>();
+	private static final ThreadLocal<Long> SESSION_ID = new ThreadLocal<>();
 
 	private AiChatRequestContext() {}
 
@@ -35,8 +36,21 @@ public final class AiChatRequestContext {
 		return ids == null ? java.util.List.of() : ids;
 	}
 
+	public static void setSessionId(Long sessionId) {
+		if (sessionId == null || sessionId <= 0) {
+			SESSION_ID.remove();
+		} else {
+			SESSION_ID.set(sessionId);
+		}
+	}
+
+	public static Long getSessionId() {
+		return SESSION_ID.get();
+	}
+
 	public static void clear() {
 		USER_MESSAGE.remove();
 		MESSAGE_IMAGE_ASSET_IDS.remove();
+		SESSION_ID.remove();
 	}
 }

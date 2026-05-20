@@ -1,0 +1,212 @@
+openapi: 3.0.3
+info:
+  title: AI 成长计划 API — 计划草案确认
+  description: |
+    AI 在对话中生成成长/学习计划草案；用户确认后写入 goals/plans/tasks，并同步助手待办用于每日提醒。
+    鉴权：Bearer JWT。说明见 `md文档/HTTP接口-成长计划草案.md`。
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000
+    description: 本地开发
+
+tags:
+  - name: 成长计划草案
+    description: 拟定 → 确认 → 入库
+
+security:
+  - bearerAuth: []
+
+paths:
+  /api/v1/growth/plan-proposals/{proposalId}:
+    get:
+      tags: [成长计划草案]
+      summary: 获取计划草案详情
+      operationId: getGrowthPlanProposal
+      parameters:
+        - name: proposalId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrowthPlanProposalDetailResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: 草案不存在或非本人
+
+  /api/v1/growth/plan-proposals/{proposalId}/confirm:
+    post:
+      tags: [成长计划草案]
+      summary: 确认并执行计划草案
+      description: |
+        将草案写入 goals、plans、tasks；并为每一天创建带 dueAt 的助手待办以触发每日提醒。
+      operationId: confirmGrowthPlanProposal
+      parameters:
+        - name: proposalId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrowthPlanProposalConfirmResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: 草案不存在
+        '409':
+          description: 已处理或已过期
+
+  /api/v1/growth/plan-proposals/{proposalId}/reject:
+    post:
+      tags: [成长计划草案]
+      summary: 拒绝计划草案
+      operationId: rejectGrowthPlanProposal
+      parameters:
+        - name: proposalId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      responses:
+        '200':
+          description: 成功（无 body）
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: 已处理
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    Unauthorized:
+      description: 未登录或令牌无效
+
+  schemas:
+    GrowthPlanProposalDayResponse:
+      type: object
+      properties:
+        dayIndex:
+          type: integer
+        scheduledDate:
+          type: string
+          format: date
+        title:
+          type: string
+        description:
+          type: string
+        estimatedMinutes:
+          type: integer
+
+    GrowthPlanProposalDetailResponse:
+      type: object
+      properties:
+        proposalId:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [PENDING, CONFIRMED, REJECTED]
+        sessionId:
+          type: integer
+          format: int64
+          nullable: true
+        goalTitle:
+          type: string
+        goalDescription:
+          type: string
+        domain:
+          type: string
+        deadline:
+          type: string
+          format: date
+        summary:
+          type: string
+        dailyReminderTime:
+          type: string
+          example: "08:00"
+        days:
+          type: array
+          items:
+            $ref: '#/components/schemas/GrowthPlanProposalDayResponse'
+        goalId:
+          type: integer
+          format: int64
+          nullable: true
+        planId:
+          type: integer
+          format: int64
+          nullable: true
+        expiresAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    GrowthPlanProposalConfirmResponse:
+      type: object
+      properties:
+        proposalId:
+          type: integer
+          format: int64
+        goalId:
+          type: integer
+          format: int64
+        planId:
+          type: integer
+          format: int64
+        growthTaskCount:
+          type: integer
+        reminderTaskCount:
+          type: integer
+        dailyReminderTime:
+          type: string
+        message:
+          type: string
+
+    AiChatPlanProposalHint:
+      type: object
+      description: POST /api/v1/ai/chat 响应中，若本轮已生成草案则返回
+      properties:
+        proposalId:
+          type: integer
+          format: int64
+        status:
+          type: string
+        goalTitle:
+          type: string
+        summary:
+          type: string
+        dayCount:
+          type: integer
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        dailyReminderTime:
+          type: string

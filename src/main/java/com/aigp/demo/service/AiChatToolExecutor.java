@@ -1,5 +1,6 @@
 package com.aigp.demo.service;
 
+import com.aigp.demo.service.growth.GrowthPlanProposalService;
 import com.aigp.demo.support.llm.AiChatPipelineDebugLog;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Component;
 public class AiChatToolExecutor {
 
 	private final UserAssistantTaskService userAssistantTaskService;
+	private final GrowthPlanProposalService growthPlanProposalService;
 	private final ObjectMapper objectMapper;
 	private final AiChatPipelineDebugLog pipelineDebugLog;
 
@@ -51,6 +53,7 @@ public class AiChatToolExecutor {
 						longList(args.path("imageAssetIds")),
 						args.has("imageAssetIds"));
 				case "delete_task" -> userAssistantTaskService.cancelTaskJson(userId, args.path("taskId").asLong());
+				case "propose_growth_plan" -> growthPlanProposalService.proposeFromToolJson(userId, args);
 				default -> "{\"error\":\"未知工具: " + toolName + "\"}";
 			};
 			pipelineDebugLog.toolInvoke(debugPhase, round, toolName, argumentsJson, result);
