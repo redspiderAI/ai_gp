@@ -126,6 +126,9 @@ app:
     zone: ${APP_TASK_REMINDER_ZONE:Asia/Shanghai}
     # 任务只有 due_date、没有 due_at 时，在截止日当天该时刻提醒（用户本地）
     default-due-date-reminder-time: ${APP_TASK_REMINDER_DEFAULT_TIME:08:00}
+  # 成长计划 tasks：开始执行后按 estimated_minutes 自动完成；计划日次日标未完成（助手每日提醒仍走 task-reminder）
+  growth-task:
+    execution-enabled: ${APP_GROWTH_TASK_EXECUTION_ENABLED:true}
   # 陪伴记忆：周六 03:00 总结，周六 08:00（用户本地）与任务提醒一并推送本周回顾
   companion-memory:
     enabled: ${APP_COMPANION_MEMORY_ENABLED:true}

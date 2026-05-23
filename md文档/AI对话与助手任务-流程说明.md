@@ -118,7 +118,12 @@ flowchart LR
   - 仅有 **`due_date`**：在截止日当天 **`app.task-reminder.default-due-date-reminder-time`**（默认 `08:00`）发送。
 - **幂等**：`reminder_sent_at` 不早于本次到期时刻则不再重复发；用户修改 `due_at` 后可再次提醒。
 - **多实例**：`scheduler_lock` 表互斥，避免重复投递。
-- **内容**：模板文案（非现场调大模型）。
+- **每日 8 点摘要**（用户本地 `default-due-date-reminder-time`，默认 `08:00`）：
+  - 一条合并消息：**鼓励语** + **当日待办**（`tasks` 表 PENDING/IN_PROGRESS + 助手 OPEN 任务，学习计划助手待办与成长任务去重）。
+  - **周六**：在同一条消息末尾追加 **【本周回顾】**（`user_companion_memory.pending_digest_text`）；不再单独推「本周回顾」会话（若摘要已成功投递）。
+  - 幂等：`user_notification_settings.daily_briefing_last_sent_date`。
+  - 当日 `08:00` 到点的助手任务**不再**逐条重复推送；其他时刻的 `due_at` 仍按单任务提醒。
+- **单任务到点**（非 8 点摘要覆盖的场景）：模板文案（非现场调大模型）。
 - **会话**：固定 **「任务提醒」** 会话，`ASSISTANT` 消息。
 - **通知**：`user_in_app_notifications` + 可选 WebSocket（见下节）。
 
@@ -155,8 +160,7 @@ flowchart TD
    - 每轮 `POST /api/v1/ai/chat` 在 system 中附带 `memory_text`（与本轮用户说法冲突时以本轮为准）。
 
 3. **推送（与任务提醒同一分钟 tick）**  
-   - 用户本地 **周六**、时刻 **`digest-delivery-time`（默认 08:00）**，且 `weekly_companion_digest=true`。  
-   - 投递至固定会话 **「本周回顾」**，通知类型 `WEEKLY_COMPANION_DIGEST`。
+   - 用户本地 **周六**、时刻 **`digest-delivery-time`（默认 08:00）**：优先并入 **每日任务摘要**（见 §5）；仅当当日摘要未投递时，才回退为单独投递至 **「本周回顾」** 会话，通知类型 `WEEKLY_COMPANION_DIGEST`。
 
 ### 相关配置
 

@@ -21,6 +21,10 @@ ALTER TABLE user_notification_settings
     ADD COLUMN weekly_companion_digest TINYINT(1) NOT NULL DEFAULT 1
         COMMENT '是否接收每周六陪伴回顾' AFTER daily_task_reminder;
 
+ALTER TABLE user_notification_settings
+    ADD COLUMN daily_briefing_last_sent_date DATE DEFAULT NULL
+        COMMENT '用户本地日：上次每日任务摘要投递日期' AFTER weekly_companion_digest;
+
 -- AI 成长计划草案（用户确认前不落 goals/plans/tasks）
 CREATE TABLE IF NOT EXISTS growth_plan_proposals (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -54,3 +58,10 @@ CREATE TABLE IF NOT EXISTS user_push_devices (
     KEY idx_push_user (user_id),
     CONSTRAINT fk_push_device_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户 FCM 推送设备';
+
+-- 成长计划 tasks：开始执行、进行中自动完成、跨日未完成
+ALTER TABLE tasks
+    ADD COLUMN started_at DATETIME DEFAULT NULL COMMENT '用户开始执行时刻' AFTER completed_at;
+
+ALTER TABLE tasks
+    MODIFY COLUMN status ENUM('PENDING','IN_PROGRESS','COMPLETED','SKIPPED','INCOMPLETE') NOT NULL DEFAULT 'PENDING';

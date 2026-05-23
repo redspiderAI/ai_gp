@@ -4,11 +4,14 @@ import com.aigp.demo.exception.ConflictException;
 import com.aigp.demo.exception.FeatureUnavailableException;
 import com.aigp.demo.exception.NotFoundException;
 import com.aigp.demo.exception.UnauthorizedException;
+import java.time.LocalDate;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
  * 将领域异常与校验异常转换为统一的 JSON 错误体，避免栈信息直接暴露给客户端。
@@ -66,6 +69,26 @@ public class ApiExceptionHandler {
 	}
 
 	/**
+	 * Query/Path 类型转换失败（如 date 非 yyyy-MM-dd）→ 400，避免误报 500。
+	 */
+	@ExceptionHandler(MethodArgumentTypeMismatchException.class)
+	public ResponseEntity<ApiErrorBody> typeMismatch(MethodArgumentTypeMismatchException ex) {
+		String msg = buildTypeMismatchMessage(ex);
+		return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+				.body(new ApiErrorBody("BAD_REQUEST", msg));
+	}
+
+	/**
+	 * 缺少必填 Query 参数 → 400。
+	 */
+	@ExceptionHandler(MissingServletRequestParameterException.class)
+	public ResponseEntity<ApiErrorBody> missingParameter(MissingServletRequestParameterException ex) {
+		String msg = ex.getParameterName() + " 不能为空";
+		return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+				.body(new ApiErrorBody("BAD_REQUEST", msg));
+	}
+
+	/**
 	 * 非法参数 → 400。
 	 */
 	@ExceptionHandler(IllegalArgumentException.class)
@@ -92,5 +115,14 @@ public class ApiExceptionHandler {
 	public ResponseEntity<ApiErrorBody> fallback(Exception ex) {
 		return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
 				.body(new ApiErrorBody("INTERNAL_ERROR", ex.getMessage()));
+	}
+
+	private static String buildTypeMismatchMessage(MethodArgumentTypeMismatchException ex) {
+		String name = ex.getName() != null ? ex.getName() : "参数";
+		Class<?> requiredType = ex.getRequiredType();
+		if (requiredType != null && LocalDate.class.isAssignableFrom(requiredType)) {
+			return name + " 格式须为 yyyy-MM-dd（如 2026-05-22）";
+		}
+		return name + " 格式不合法";
 	}
 }

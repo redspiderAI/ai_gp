@@ -52,7 +52,7 @@ public final class TaskReminderDueEvaluator {
 		return !sent.isBefore(dueMoment);
 	}
 
-	static ZoneId resolveZone(String timezone) {
+	public static ZoneId resolveZone(String timezone) {
 		if (!StringUtils.hasText(timezone)) {
 			return ZoneId.of("Asia/Shanghai");
 		}

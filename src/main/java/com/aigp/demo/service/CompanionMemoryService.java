@@ -9,6 +9,7 @@ import com.aigp.demo.domain.enums.UserAssistantTaskStatus;
 import com.aigp.demo.domain.chat.UserAssistantTask;
 import com.aigp.demo.domain.user.AppUser;
 import com.aigp.demo.domain.user.UserCompanionMemory;
+import com.aigp.demo.domain.user.UserNotificationSettings;
 import com.aigp.demo.repository.AiChatMessageRepository;
 import com.aigp.demo.repository.AppUserRepository;
 import com.aigp.demo.repository.UserAssistantTaskRepository;
@@ -236,7 +237,12 @@ public class CompanionMemoryService {
 		if (!CompanionDigestDeliveryEvaluator.shouldDeliverNow(user, deliveryTime)) {
 			return false;
 		}
-		if (!userNotificationSettingsService.getOrCreate(user).isWeeklyCompanionDigest()) {
+		UserNotificationSettings notificationSettings = userNotificationSettingsService.getOrCreate(user);
+		if (!notificationSettings.isWeeklyCompanionDigest()) {
+			return false;
+		}
+		// 周六 08:00 已并入每日任务摘要时不再单独推送「本周回顾」会话
+		if (DailyTaskBriefingEvaluator.alreadySentToday(user, notificationSettings.getDailyBriefingLastSentDate())) {
 			return false;
 		}
 		if (!StringUtils.hasText(memory.getPendingDigestText())) {

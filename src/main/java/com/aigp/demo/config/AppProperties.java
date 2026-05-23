@@ -21,6 +21,7 @@ public class AppProperties {
 	private final CompanionMemory companionMemory = new CompanionMemory();
 	private final Speech speech = new Speech();
 	private final MobilePush mobilePush = new MobilePush();
+	private final GrowthTask growthTask = new GrowthTask();
 
 	/** 本地上传根目录（相对路径基于进程工作目录） */
 	private String uploadPath = "uploads";
@@ -135,7 +136,7 @@ public class AppProperties {
 		/** 每分钟第 0 秒触发（按用户本地 due_at 到点提醒） */
 		private String cron = "0 * * * * ?";
 		private String zone = "Asia/Shanghai";
-		/** 仅 due_date、无 due_at 时，在截止日当天该时刻提醒（HH:mm） */
+		/** 仅 due_date、无 due_at 时，在截止日当天该时刻提醒（HH:mm）；亦为每日任务摘要时刻 */
 		private String defaultDueDateReminderTime = "08:00";
 	}
 
@@ -201,5 +202,13 @@ public class AppProperties {
 		private String credentialsPath = "";
 		/** AI 对话回复是否发系统推送 */
 		private boolean chatReplyEnabled = false;
+	}
+
+	/** 成长计划 {@code tasks} 表：开始执行、到时自动完成、跨日未完成。 */
+	@Getter
+	@Setter
+	public static class GrowthTask {
+		/** 是否启用每分钟状态扫描（与 task-reminder 同窗） */
+		private boolean executionEnabled = true;
 	}
 }

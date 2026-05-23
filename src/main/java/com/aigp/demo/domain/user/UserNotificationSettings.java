@@ -9,6 +9,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -33,6 +34,10 @@ public class UserNotificationSettings {
 
 	@Column(name = "daily_task_reminder", nullable = false)
 	private boolean dailyTaskReminder = true;
+
+	/** 用户本地日历日：上次已投递每日任务摘要的日期（幂等） */
+	@Column(name = "daily_briefing_last_sent_date")
+	private LocalDate dailyBriefingLastSentDate;
 
 	@Column(name = "weekly_companion_digest", nullable = false)
 	private boolean weeklyCompanionDigest = true;

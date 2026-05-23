@@ -436,7 +436,7 @@ DELETE /api/v1/users/me/push-tokens
 | contentPreview | string | 正文预览（最长约 120 字） |
 | unreadCount | number | 站内通知未读数 |
 
-**任务到期提醒**（`type` = `TASK_DUE_REMINDER`）：
+**任务到期提醒 / 每日 8 点摘要**（`type` = `TASK_DUE_REMINDER`）：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -444,10 +444,12 @@ DELETE /api/v1/users/me/push-tokens
 | notificationId | number | 通知 ID |
 | sessionId | number | 「任务提醒」会话 ID |
 | messageId | number | 会话内消息 ID |
-| taskId | number | 助手任务 ID |
-| title | string | 通知标题 |
-| body | string | 通知正文 |
+| taskId | number \| null | 单任务提醒时有值；每日合并摘要时为 `null` |
+| title | string | 通知标题（如 `早安 · 今日待办`、周六 `早安 · 今日待办与本周回顾`） |
+| body | string | 通知正文（含鼓励语、当日待办列表；周六可含【本周回顾】） |
 | unreadCount | number | 站内通知未读数 |
+
+用户本地 **每日** `app.task-reminder.default-due-date-reminder-time`（默认 `08:00`）投递一条合并消息；需 `daily_task_reminder=true`。非摘要时刻的 `due_at` 仍可能收到单任务提醒。
 
 **每周陪伴回顾**（`type` = `WEEKLY_COMPANION_DIGEST`）：
 
@@ -462,7 +464,7 @@ DELETE /api/v1/users/me/push-tokens
 | body | string | 回顾正文预览（最长约 500 字） |
 | unreadCount | number | 站内通知未读数 |
 
-推送时刻：用户本地 **周六** `app.companion-memory.digest-delivery-time`（默认 `08:00`，与仅 `due_date` 任务提醒同窗）。需 `user_notification_settings.weekly_companion_digest=true`。
+推送时刻：用户本地 **周六** `app.companion-memory.digest-delivery-time`（默认 `08:00`）。**优先**并入当日 8 点任务摘要（`TASK_DUE_REMINDER`）；仅当当日摘要未成功投递时，才单独推本类型至「本周回顾」会话。需 `weekly_companion_digest=true`。
 
 ---
 

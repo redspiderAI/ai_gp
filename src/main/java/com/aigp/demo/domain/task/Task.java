@@ -82,6 +82,10 @@ public class Task {
 	@Column(name = "completed_at")
 	private LocalDateTime completedAt;
 
+	/** 用户点击「开始执行」的时刻（用户本地语义由业务层按 timezone 解释） */
+	@Column(name = "started_at")
+	private LocalDateTime startedAt;
+
 	@CreationTimestamp
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private LocalDateTime createdAt;

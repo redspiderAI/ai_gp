@@ -90,6 +90,8 @@ AI 在对话中调用 `propose_growth_plan` 生成**待确认**草案；用户�
 
 用户需在通知设置中开启**每日任务提醒**（`daily_task_reminder`），否则到点不会推送。
 
+确认后 **`tasks` 表**任务的「开始执行 / 自动完成 / 跨日未完成」见 **`md文档/HTTP接口-成长计划任务.md`**（与助手每日提醒 `user_assistant_tasks` 分离）。
+
 ---
 
 ## 4. 拒绝草案

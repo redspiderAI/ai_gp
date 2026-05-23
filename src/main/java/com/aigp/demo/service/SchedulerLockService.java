@@ -18,6 +18,7 @@ public class SchedulerLockService {
 
 	private static final String LOCK_TASK_REMINDER = "assistant_task_reminder";
 	private static final String LOCK_COMPANION_WEEKLY = "companion_weekly_memory";
+	private static final String LOCK_GROWTH_TASK_EXECUTION = "growth_task_execution";
 
 	private final JdbcTemplate jdbcTemplate;
 	private final String ownerId = UUID.randomUUID().toString().substring(0, 8);
@@ -41,6 +42,11 @@ public class SchedulerLockService {
 	 */
 	public boolean tryAcquireCompanionWeeklyLock(Duration holdFor) {
 		return tryAcquire(LOCK_COMPANION_WEEKLY, holdFor);
+	}
+
+	/** 成长计划任务：自动完成 / 跨日未完成。 */
+	public boolean tryAcquireGrowthTaskExecutionLock(Duration holdFor) {
+		return tryAcquire(LOCK_GROWTH_TASK_EXECUTION, holdFor);
 	}
 
 	private boolean tryAcquire(String lockName, Duration holdFor) {

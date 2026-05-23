@@ -48,4 +48,24 @@ public interface UserAssistantTaskRepository extends JpaRepository<UserAssistant
 			@Param("userId") Long userId,
 			@Param("from") LocalDateTime fromUtc,
 			@Param("to") LocalDateTime toUtc);
+
+	/**
+	 * 每日摘要粗筛：OPEN 且 due_date 或 due_at 落在窗口内（再由服务按用户本地「今天」过滤）。
+	 */
+	@Query(
+			"""
+			SELECT t FROM UserAssistantTask t JOIN FETCH t.user u
+			WHERE t.status = :status
+			  AND (
+			    (t.dueDate IS NOT NULL AND t.dueDate >= :fromDate AND t.dueDate <= :toDate)
+			    OR (t.dueAt IS NOT NULL AND t.dueAt >= :dueAtFrom AND t.dueAt < :dueAtTo)
+			  )
+			ORDER BY t.dueAt ASC, t.dueDate ASC, t.id ASC
+			""")
+	List<UserAssistantTask> findOpenTasksWithDueDateBetween(
+			@Param("status") UserAssistantTaskStatus status,
+			@Param("fromDate") LocalDate fromDate,
+			@Param("toDate") LocalDate toDate,
+			@Param("dueAtFrom") LocalDateTime dueAtFrom,
+			@Param("dueAtTo") LocalDateTime dueAtTo);
 }

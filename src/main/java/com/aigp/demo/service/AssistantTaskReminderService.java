@@ -42,6 +42,7 @@ public class AssistantTaskReminderService {
 	private final AiChatReminderSessionService aiChatReminderSessionService;
 	private final InAppNotificationService inAppNotificationService;
 	private final SchedulerLockService schedulerLockService;
+	private final DailyTaskBriefingService dailyTaskBriefingService;
 
 	/**
 	 * 由定时任务每分钟调用：获取分布式锁后扫描并发送到期提醒。
@@ -57,6 +58,7 @@ public class AssistantTaskReminderService {
 		if (!schedulerLockService.tryAcquireTaskReminderLock(Duration.ofSeconds(50))) {
 			return 0;
 		}
+		dailyTaskBriefingService.sendDueBriefings();
 		LocalDateTime dueAtFloor =
 				LocalDateTime.now(ZoneOffset.UTC).minusHours(SCAN_FLOOR_HOURS).truncatedTo(ChronoUnit.MINUTES);
 		LocalDateTime dueAtCeiling =
@@ -84,6 +86,9 @@ public class AssistantTaskReminderService {
 			return false;
 		}
 		if (!TaskReminderDueEvaluator.shouldSendNow(task, user, dateOnlyReminderTime)) {
+			return false;
+		}
+		if (dailyTaskBriefingService.shouldDeferSingleReminder(task, user, dateOnlyReminderTime)) {
 			return false;
 		}
 		UserNotificationSettings settings = userNotificationSettingsService.getOrCreate(user);

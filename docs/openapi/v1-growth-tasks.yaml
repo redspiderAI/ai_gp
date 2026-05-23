@@ -1,0 +1,211 @@
+openapi: 3.0.3
+info:
+  title: AI 成长计划 API — 成长计划任务执行
+  description: |
+    成长计划 `tasks` 表：开始执行、提前完成、到时自动完成、跨日未完成。
+    每日提醒仍由助手待办（user_assistant_tasks）+ task-reminder 推送，与本组接口独立。
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8080
+
+tags:
+  - name: 成长计划任务
+    security:
+      - bearerAuth: []
+
+security:
+  - bearerAuth: []
+
+paths:
+  /api/v1/users/me/growth-tasks:
+    get:
+      tags: [成长计划任务]
+      summary: 按日期查询成长计划任务
+      operationId: listGrowthTasksByDate
+      parameters:
+        - name: date
+          in: query
+          required: true
+          description: 计划执行日，格式 yyyy-MM-dd（月、日须补零，如 2026-05-22）
+          schema:
+            type: string
+            format: date
+            example: "2026-05-22"
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrowthTaskListResponse'
+        '400':
+          description: date 缺失或格式非法（须 yyyy-MM-dd）
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/users/me/growth-tasks/today:
+    get:
+      tags: [成长计划任务]
+      summary: 查询用户本地今天的计划任务
+      operationId: listGrowthTasksToday
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrowthTaskListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/users/me/growth-tasks/{taskId}/start:
+    post:
+      tags: [成长计划任务]
+      summary: 开始执行任务
+      description: |
+        仅 `PENDING` 且用户本地日历日等于该任务的 `scheduledDate`（计划日）可调用。
+        计划日当天 0 点起即可开始，无需等到每日提醒时刻；不可早于计划日、不可在计划日结束后开始。
+        成功后 `IN_PROGRESS`，`startedAt` 为当前时刻；`plannedEndAt = startedAt + estimatedMinutes`。
+        到点后由服务端每分钟扫描自动置 `COMPLETED`；计划日次日仍为 `PENDING` 的置 `INCOMPLETE`。
+      operationId: startGrowthTask
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrowthTaskItemResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: 状态或日期不允许开始
+
+  /api/v1/users/me/growth-tasks/{taskId}/complete:
+    post:
+      tags: [成长计划任务]
+      summary: 提前完成（标记已完成）
+      description: |
+        将 `PENDING` 或 `IN_PROGRESS` 任务标记为 `COMPLETED`，可在 `plannedEndAt` 之前调用（提前结束）。
+        用户本地日历日须等于 `scheduledDate`（计划日）；不可早于或晚于计划日。
+        请求体可选：`actualMinutes`、`qualityScore`（1～5）。
+      operationId: completeGrowthTask
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GrowthTaskCompleteRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrowthTaskItemResponse'
+        '400':
+          description: 参数非法（如 qualityScore 超出 1～5）
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: 状态或计划日不允许完成
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    GrowthTaskItemResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        goalId:
+          type: integer
+          format: int64
+        planId:
+          type: integer
+          format: int64
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        scheduledDate:
+          type: string
+          format: date
+        estimatedMinutes:
+          type: integer
+        status:
+          type: string
+          enum: [PENDING, IN_PROGRESS, COMPLETED, SKIPPED, INCOMPLETE]
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        plannedEndAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: 开始执行后 = startedAt + estimatedMinutes
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        actualMinutes:
+          type: integer
+          nullable: true
+
+    GrowthTaskListResponse:
+      type: object
+      properties:
+        count:
+          type: integer
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/GrowthTaskItemResponse'
+
+    GrowthTaskCompleteRequest:
+      type: object
+      properties:
+        actualMinutes:
+          type: integer
+          minimum: 1
+          maximum: 1440
+          description: 实际耗时（分钟），可选
+        qualityScore:
+          type: integer
+          minimum: 1
+          maximum: 5
+          description: 自评质量，可选
+
+  responses:
+    Unauthorized:
+      description: 未登录
+    NotFound:
+      description: 任务不存在或非本人
