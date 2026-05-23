@@ -73,6 +73,16 @@ public class InAppNotificationService {
 		if (!appProperties.getChat().isPushOnReplyEnabled()) {
 			return;
 		}
+		pushChatMessage(userId, sessionId, messageId, contentPreview, true);
+	}
+
+	/** 任务到点提醒写入会话后推送 CHAT_REPLY，便于聊天页实时刷新（WebSocket 始终发送；移动推送受 task-reminder 开关控制）。 */
+	public void pushReminderChatMessage(Long userId, Long sessionId, Long messageId, String contentPreview) {
+		pushChatMessage(userId, sessionId, messageId, contentPreview, false);
+	}
+
+	private void pushChatMessage(
+			Long userId, Long sessionId, Long messageId, String contentPreview, boolean mobileAsChatReply) {
 		long unread = userInAppNotificationRepository.countByUser_IdAndReadAtIsNull(userId);
 		Map<String, Object> payload = new LinkedHashMap<>();
 		payload.put("type", "CHAT_REPLY");
@@ -81,8 +91,11 @@ public class InAppNotificationService {
 		payload.put("contentPreview", preview(contentPreview));
 		payload.put("unreadCount", unread);
 		chatRealtimePushService.pushToUser(userId, payload);
-		if (appProperties.getMobilePush().isChatReplyEnabled()) {
-			deliverMobilePush(userId, "新消息", preview(contentPreview), payload);
+		if (appProperties.getMobilePush().isEnabled()
+				&& (mobileAsChatReply
+						? appProperties.getMobilePush().isChatReplyEnabled()
+						: appProperties.getTaskReminder().isPushEnabled())) {
+			deliverMobilePush(userId, mobileAsChatReply ? "新消息" : preview(contentPreview), preview(contentPreview), payload);
 		}
 	}
 

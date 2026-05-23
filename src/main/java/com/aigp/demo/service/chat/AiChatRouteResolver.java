@@ -65,6 +65,11 @@ public class AiChatRouteResolver {
 			caps.add(AiChatCapabilityId.USER_PROFILE);
 			caps.add(AiChatCapabilityId.CHAT_HISTORY);
 		}
+		if (looksLikeTaskCompleteRequest(msg)) {
+			caps.add(AiChatCapabilityId.ASSISTANT_TASKS);
+			caps.add(AiChatCapabilityId.GROWTH_PLAN_TASKS);
+			caps.add(AiChatCapabilityId.CHAT_HISTORY);
+		}
 
 		caps.removeIf(c -> !c.available());
 		for (AiChatCapabilityId u : List.copyOf(unsupported)) {
@@ -192,5 +197,18 @@ public class AiChatRouteResolver {
 				|| msg.equals("后天")
 				|| msg.matches(".*\\d{4}-\\d{2}-\\d{2}.*")
 				|| msg.matches(".*\\d{1,2}月\\d{1,2}.*");
+	}
+
+	private static boolean looksLikeTaskCompleteRequest(String msg) {
+		if (!StringUtils.hasText(msg)) {
+			return false;
+		}
+		String t = msg.trim();
+		return t.contains("完成了")
+				|| t.contains("做完了")
+				|| t.contains("搞定了")
+				|| t.contains("已完成")
+				|| t.contains("标记完成")
+				|| t.contains("任务完成");
 	}
 }

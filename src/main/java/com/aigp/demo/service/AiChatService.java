@@ -34,6 +34,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -75,6 +77,7 @@ public class AiChatService {
 	private final AiChatToolExecutor aiChatToolExecutor;
 	private final AiChatUserContextBuilder aiChatUserContextBuilder;
 	private final UserAssistantTaskService userAssistantTaskService;
+	private final TaskService taskService;
 	private final AiChatPlanningService aiChatPlanningService;
 	private final AiChatRouteResolver routeResolver;
 	private final InAppNotificationService inAppNotificationService;
@@ -93,6 +96,7 @@ public class AiChatService {
 			AiChatToolExecutor aiChatToolExecutor,
 			AiChatUserContextBuilder aiChatUserContextBuilder,
 			UserAssistantTaskService userAssistantTaskService,
+			TaskService taskService,
 			AiChatPlanningService aiChatPlanningService,
 			AiChatRouteResolver routeResolver,
 			InAppNotificationService inAppNotificationService,
@@ -109,6 +113,7 @@ public class AiChatService {
 		this.aiChatToolExecutor = aiChatToolExecutor;
 		this.aiChatUserContextBuilder = aiChatUserContextBuilder;
 		this.userAssistantTaskService = userAssistantTaskService;
+		this.taskService = taskService;
 		this.aiChatPlanningService = aiChatPlanningService;
 		this.routeResolver = routeResolver;
 		this.inAppNotificationService = inAppNotificationService;
@@ -214,7 +219,8 @@ public class AiChatService {
 		String intentHint = null;
 		if (appProperties.getChat().isMultiPhaseEnabled()
 				&& (route.hasCapability(AiChatCapabilityId.ASSISTANT_TASKS)
-						|| route.hasCapability(AiChatCapabilityId.PLAN_PROPOSAL))) {
+						|| route.hasCapability(AiChatCapabilityId.PLAN_PROPOSAL)
+						|| route.hasCapability(AiChatCapabilityId.GROWTH_PLAN_TASKS))) {
 			intentHint = aiChatPlanningService.analyzeUserIntent(
 					providerConfig, userMessage, sessionHistoryForIntent);
 			route = alignRouteWithIntentHint(route, intentHint);
@@ -232,8 +238,15 @@ public class AiChatService {
 			tasksSummary = userAssistantTaskService.buildTasksSummaryForChat(userId, status, userMessage);
 		}
 
+		String growthTasksSummary = null;
+		if (plan.needGrowthTaskList()) {
+			var u = appUserService.requireActive(userId);
+			ZoneId zone = TaskReminderDueEvaluator.resolveZone(u.getTimezone());
+			growthTasksSummary = taskService.buildGrowthTasksSummaryForChat(userId, LocalDate.now(zone));
+		}
+
 		String systemPrompt = aiChatUserContextBuilder.buildSystemPrompt(
-				user, plan, tasksSummary, intentHint, unsupportedHint, imageAssetIds);
+				user, plan, tasksSummary, growthTasksSummary, intentHint, unsupportedHint, imageAssetIds);
 
 		List<Map<String, Object>> llmMessages = new ArrayList<>();
 		llmMessages.add(Map.of("role", "system", "content", systemPrompt));
@@ -362,6 +375,9 @@ public class AiChatService {
 		List<Map<String, Object>> tools = new ArrayList<>();
 		if (plan.needTaskTools()) {
 			tools.addAll(AiChatToolDefinitions.taskTools());
+		}
+		if (plan.needGrowthPlanTools()) {
+			tools.addAll(AiChatToolDefinitions.growthTaskTools());
 		}
 		if (plan.needPlanProposalTools()) {
 			tools.addAll(AiChatToolDefinitions.planProposalTools());
@@ -524,6 +540,11 @@ public class AiChatService {
 		if (AiChatIntentSignals.suggestsPlanProposalTools(intentHint)
 				&& !route.hasCapability(AiChatCapabilityId.PLAN_PROPOSAL)) {
 			caps.add(AiChatCapabilityId.PLAN_PROPOSAL);
+			changed = true;
+		}
+		if (AiChatIntentSignals.suggestsGrowthPlanTools(intentHint)
+				&& !route.hasCapability(AiChatCapabilityId.GROWTH_PLAN_TASKS)) {
+			caps.add(AiChatCapabilityId.GROWTH_PLAN_TASKS);
 			changed = true;
 		}
 		if (!changed) {

@@ -2,7 +2,6 @@ package com.aigp.demo.service;
 
 import com.aigp.demo.config.AppProperties;
 import com.aigp.demo.domain.chat.AiChatMessage;
-import com.aigp.demo.domain.chat.AiChatSession;
 import com.aigp.demo.domain.enums.ChatMessageRole;
 import com.aigp.demo.domain.enums.InAppNotificationType;
 import com.aigp.demo.domain.enums.UserAssistantTaskStatus;
@@ -20,7 +19,6 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -121,17 +119,19 @@ public class CompanionMemoryService {
 		if (!schedulerLockService.tryAcquireCompanionWeeklyLock(Duration.ofMinutes(55))) {
 			return 0;
 		}
-		ZonedDateTime batchEnd = ZonedDateTime.now(ZoneId.of(appProperties.getCompanionMemory().getZone()));
+		ZoneId storageZone = ZoneId.of(appProperties.getCompanionMemory().getZone());
+		ZonedDateTime batchEnd = ZonedDateTime.now(storageZone);
 		ZonedDateTime batchStart = batchEnd.minusDays(7);
-		LocalDateTime fromUtc = LocalDateTime.ofInstant(batchStart.toInstant(), ZoneOffset.UTC);
-		LocalDateTime toUtc = LocalDateTime.ofInstant(batchEnd.toInstant(), ZoneOffset.UTC);
+		// 与 Hibernate jdbc.time_zone 一致：库内 DATETIME 即北京时间
+		LocalDateTime fromLocal = batchStart.toLocalDateTime();
+		LocalDateTime toLocal = batchEnd.toLocalDateTime();
 
 		List<Long> userIds = aiChatMessageRepository.findDistinctUserIdsWithMessagesBetween(
-				fromUtc, toUtc, CHAT_ROLES, EXCLUDED_SESSION_TITLES);
+				fromLocal, toLocal, CHAT_ROLES, EXCLUDED_SESSION_TITLES);
 		int ok = 0;
 		for (Long userId : userIds) {
 			try {
-				if (summarizeOneUser(userId, fromUtc, toUtc)) {
+				if (summarizeOneUser(userId, storageZone, fromLocal, toLocal)) {
 					ok++;
 				}
 			} catch (Exception e) {
@@ -174,7 +174,7 @@ public class CompanionMemoryService {
 		return sent;
 	}
 
-	private boolean summarizeOneUser(Long userId, LocalDateTime fromUtc, LocalDateTime toUtc) {
+	private boolean summarizeOneUser(Long userId, ZoneId storageZone, LocalDateTime fromLocal, LocalDateTime toLocal) {
 		AppUser user = appUserRepository.findById(userId).orElse(null);
 		if (user == null || user.getStatus() == null || user.getStatus() != 1) {
 			return false;
@@ -191,7 +191,7 @@ public class CompanionMemoryService {
 		}
 
 		List<AiChatMessage> messages = aiChatMessageRepository.findUserMessagesBetween(
-				userId, fromUtc, toUtc, CHAT_ROLES, EXCLUDED_SESSION_TITLES);
+				userId, fromLocal, toLocal, CHAT_ROLES, EXCLUDED_SESSION_TITLES);
 		int maxMsgs = Math.max(10, appProperties.getCompanionMemory().getMaxMessagesPerWeek());
 		if (messages.size() > maxMsgs) {
 			messages = messages.subList(messages.size() - maxMsgs, messages.size());
@@ -200,8 +200,8 @@ public class CompanionMemoryService {
 			return false;
 		}
 
-		String transcript = buildTranscript(messages, zone);
-		String taskStats = buildWeekTaskStats(userId, fromUtc, toUtc);
+		String transcript = buildTranscript(messages, storageZone, zone);
+		String taskStats = buildWeekTaskStats(userId, fromLocal, toLocal);
 		AppProperties.ChatProvider provider = chatProviderResolver.resolvePlatformForBackgroundJob();
 
 		WeekSummaryParts parts = callWeekSummaryLlm(provider, user, weekKey, transcript, taskStats);
@@ -218,7 +218,7 @@ public class CompanionMemoryService {
 		memory.setWeekInternalSummary(truncate(parts.weekInternal(), 8000));
 		memory.setPendingDigestText(truncate(parts.userDigest(), 4000));
 		memory.setSummarizedWeekKey(weekKey);
-		memory.setLastSummarizedAt(LocalDateTime.now(zone));
+		memory.setLastSummarizedAt(LocalDateTime.now(storageZone));
 		userCompanionMemoryRepository.save(memory);
 		return true;
 	}
@@ -238,9 +238,6 @@ public class CompanionMemoryService {
 			return false;
 		}
 		UserNotificationSettings notificationSettings = userNotificationSettingsService.getOrCreate(user);
-		if (!notificationSettings.isWeeklyCompanionDigest()) {
-			return false;
-		}
 		// 周六 08:00 已并入每日任务摘要时不再单独推送「本周回顾」会话
 		if (DailyTaskBriefingEvaluator.alreadySentToday(user, notificationSettings.getDailyBriefingLastSentDate())) {
 			return false;
@@ -258,11 +255,10 @@ public class CompanionMemoryService {
 
 		String providerKey = defaultProviderKey();
 		AppProperties.ChatProvider providerConfig = chatProviderResolver.resolvePlatformForBackgroundJob();
-		AiChatSession session = aiChatReminderSessionService.getOrCreateWeeklyDigestSession(
-				user, providerKey, providerConfig.getModel());
-
 		String body = memory.getPendingDigestText().trim();
-		var message = aiChatReminderSessionService.appendAssistantMessage(session, body);
+		AiChatReminderSessionService.NoticeDelivery delivery =
+				aiChatReminderSessionService.appendAssistantNoticeToLatestSession(
+						user, providerKey, providerConfig.getModel(), body);
 		String title = "本周回顾 · " + weekKey;
 
 		inAppNotificationService.createAndPush(
@@ -271,8 +267,8 @@ public class CompanionMemoryService {
 				title,
 				truncate(body, 500),
 				null,
-				session,
-				message.getId());
+				delivery.session(),
+				delivery.message().getId());
 
 		memory.setDigestDeliveredWeekKey(weekKey);
 		userCompanionMemoryRepository.save(memory);
@@ -364,13 +360,13 @@ public class CompanionMemoryService {
 		return text.substring(start, end).trim();
 	}
 
-	private static String buildTranscript(List<AiChatMessage> messages, ZoneId zone) {
+	private static String buildTranscript(List<AiChatMessage> messages, ZoneId storageZone, ZoneId displayZone) {
 		StringBuilder sb = new StringBuilder();
 		for (AiChatMessage m : messages) {
 			String role = m.getRole() == ChatMessageRole.USER ? "用户" : "助手";
 			String time = m.getCreatedAt() == null
 					? ""
-					: m.getCreatedAt().atZone(ZoneOffset.UTC).withZoneSameInstant(zone).format(MSG_TIME);
+					: m.getCreatedAt().atZone(storageZone).withZoneSameInstant(displayZone).format(MSG_TIME);
 			String content = m.getContent() == null ? "" : m.getContent().trim();
 			if (content.length() > 1200) {
 				content = content.substring(0, 1200) + "…";
@@ -380,9 +376,9 @@ public class CompanionMemoryService {
 		return sb.toString();
 	}
 
-	private String buildWeekTaskStats(Long userId, LocalDateTime fromUtc, LocalDateTime toUtc) {
+	private String buildWeekTaskStats(Long userId, LocalDateTime fromLocal, LocalDateTime toLocal) {
 		List<UserAssistantTask> tasks =
-				userAssistantTaskRepository.findByUser_IdAndUpdatedAtBetween(userId, fromUtc, toUtc);
+				userAssistantTaskRepository.findByUser_IdAndUpdatedAtBetween(userId, fromLocal, toLocal);
 		if (tasks.isEmpty()) {
 			return "（本周无任务变更记录）";
 		}

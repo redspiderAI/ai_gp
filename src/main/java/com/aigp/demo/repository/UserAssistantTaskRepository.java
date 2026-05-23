@@ -16,17 +16,41 @@ public interface UserAssistantTaskRepository extends JpaRepository<UserAssistant
 
 	List<UserAssistantTask> findByUser_IdAndStatusOrderByUpdatedAtDesc(Long userId, UserAssistantTaskStatus status);
 
+	/**
+	 * 按用户与「到期日」查询助手待办：{@code due_date = date} 或 {@code due_at} 落在该自然日。
+	 */
+	@Query(
+			"""
+			SELECT t FROM UserAssistantTask t
+			WHERE t.user.id = :userId
+			  AND (
+			    t.dueDate = :date
+			    OR (t.dueAt >= :dayStart AND t.dueAt < :dayEnd)
+			  )
+			ORDER BY t.dueAt ASC, t.dueDate ASC, t.createdAt ASC
+			""")
+	List<UserAssistantTask> findByUser_IdAndDueOnDate(
+			@Param("userId") Long userId,
+			@Param("date") LocalDate date,
+			@Param("dayStart") LocalDateTime dayStart,
+			@Param("dayEnd") LocalDateTime dayEnd);
+
 	Optional<UserAssistantTask> findByIdAndUser_Id(Long id, Long userId);
+
+	@Query("SELECT t FROM UserAssistantTask t JOIN FETCH t.user u WHERE t.id = :id")
+	Optional<UserAssistantTask> findByIdWithUser(@Param("id") Long id);
 
 	/**
 	 * 提醒扫描候选集（粗筛）：再由 {@link TaskReminderDueEvaluator} 按用户时区精确判断。
+	 * <p>含 {@code due_at} 已逾期且 {@code reminder_sent_at} 为空的历史任务（补发），避免仅 36h 窗口漏扫。
 	 */
 	@Query(
 			"""
 			SELECT t FROM UserAssistantTask t JOIN FETCH t.user u
 			WHERE t.status = :status
 			  AND (
-			    (t.dueAt IS NOT NULL AND t.dueAt >= :dueAtFloor AND t.dueAt <= :dueAtCeiling)
+			    (t.dueAt IS NOT NULL AND t.dueAt <= :dueAtCeiling
+			      AND (t.dueAt >= :dueAtFloor OR t.reminderSentAt IS NULL))
 			    OR (t.dueAt IS NULL AND t.dueDate IS NOT NULL AND t.dueDate <= :dueDateCeiling)
 			  )
 			ORDER BY t.dueAt ASC, t.dueDate ASC, t.id ASC
@@ -46,8 +70,8 @@ public interface UserAssistantTaskRepository extends JpaRepository<UserAssistant
 			""")
 	List<UserAssistantTask> findByUser_IdAndUpdatedAtBetween(
 			@Param("userId") Long userId,
-			@Param("from") LocalDateTime fromUtc,
-			@Param("to") LocalDateTime toUtc);
+			@Param("from") LocalDateTime from,
+			@Param("to") LocalDateTime to);
 
 	/**
 	 * 每日摘要粗筛：OPEN 且 due_date 或 due_at 落在窗口内（再由服务按用户本地「今天」过滤）。

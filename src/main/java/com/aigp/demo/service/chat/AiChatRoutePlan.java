@@ -22,6 +22,7 @@ public record AiChatRoutePlan(
 		return capabilities != null
 				&& (hasCapability(AiChatCapabilityId.ASSISTANT_TASKS)
 						|| hasCapability(AiChatCapabilityId.PLAN_PROPOSAL)
+						|| hasCapability(AiChatCapabilityId.GROWTH_PLAN_TASKS)
 						|| hasCapability(AiChatCapabilityId.CHAT)
 						|| hasCapability(AiChatCapabilityId.USER_PROFILE));
 	}
@@ -40,6 +41,7 @@ public record AiChatRoutePlan(
 		boolean needProfile = hasCapability(AiChatCapabilityId.USER_PROFILE);
 		boolean assistant = hasCapability(AiChatCapabilityId.ASSISTANT_TASKS);
 		boolean planProposal = hasCapability(AiChatCapabilityId.PLAN_PROPOSAL);
+		boolean growthPlan = hasCapability(AiChatCapabilityId.GROWTH_PLAN_TASKS);
 		String status = taskListStatus;
 		if (assistant && (status == null || status.isBlank())) {
 			status = "OPEN";
@@ -50,6 +52,8 @@ public record AiChatRoutePlan(
 				assistant,
 				assistant,
 				planProposal,
+				growthPlan,
+				growthPlan,
 				status,
 				reason == null ? "" : reason);
 	}

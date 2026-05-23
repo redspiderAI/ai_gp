@@ -13,9 +13,9 @@ public final class AiChatIntentSignals {
 					+ "是否[^\\n]{0,24}(调用|使用)[^\\n]{0,16}工具[^\\n]{0,12}[：:][^\\n]*否");
 
 	private static final Pattern POSITIVE_TOOL_USE = Pattern.compile(
-			"(?i)(应|需要|必须|建议)(调用|使用)\\s*(任务工具|create_task|list_tasks|update_task|delete_task|get_task|propose_growth_plan)"
-					+ "|应调用\\s*(create_task|list_tasks|update_task|delete_task|get_task|propose_growth_plan)"
-					+ "|须调用\\s*(create_task|list_tasks|propose_growth_plan)"
+			"(?i)(应|需要|必须|建议)(调用|使用)\\s*(任务工具|create_task|list_tasks|update_task|delete_task|get_task|list_growth_tasks|complete_growth_task|propose_growth_plan)"
+					+ "|应调用\\s*(create_task|list_tasks|update_task|delete_task|get_task|list_growth_tasks|complete_growth_task|propose_growth_plan)"
+					+ "|须调用\\s*(create_task|list_tasks|propose_growth_plan|complete_growth_task)"
 					+ "|是否[^\\n]{0,24}(调用|使用)[^\\n]{0,16}工具[^\\n]{0,12}[：:][^\\n]*是");
 
 	private AiChatIntentSignals() {}
@@ -57,5 +57,23 @@ public final class AiChatIntentSignals {
 		}
 		return (lower.contains("复习计划") || lower.contains("学习计划") || lower.contains("制定计划"))
 				&& (lower.contains("propose") || lower.contains("草案") || lower.contains("待确认"));
+	}
+
+	/** 意图分析是否表明应查询/完成成长计划 tasks 表任务。 */
+	public static boolean suggestsGrowthPlanTools(String intentHint) {
+		if (!StringUtils.hasText(intentHint)) {
+			return false;
+		}
+		String lower = intentHint.trim().toLowerCase(Locale.ROOT);
+		if (lower.contains("complete_growth_task")
+				|| lower.contains("list_growth_tasks")
+				|| lower.contains("growth_plan_tasks")) {
+			return lower.contains("应调用")
+					|| lower.contains("需要调用")
+					|| lower.contains("必须调用")
+					|| lower.contains("建议调用");
+		}
+		return (lower.contains("完成了") || lower.contains("做完了") || lower.contains("标记完成"))
+				&& (lower.contains("学习") || lower.contains("计划") || lower.contains("成长") || lower.contains("任务"));
 	}
 }

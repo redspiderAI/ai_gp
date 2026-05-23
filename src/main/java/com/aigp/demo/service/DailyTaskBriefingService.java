@@ -1,8 +1,6 @@
 package com.aigp.demo.service;
 
 import com.aigp.demo.config.AppProperties;
-import com.aigp.demo.domain.chat.AiChatMessage;
-import com.aigp.demo.domain.chat.AiChatSession;
 import com.aigp.demo.domain.chat.UserAssistantTask;
 import com.aigp.demo.domain.enums.InAppNotificationType;
 import com.aigp.demo.domain.enums.TaskStatus;
@@ -20,7 +18,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -107,11 +104,12 @@ public class DailyTaskBriefingService {
 
 	private Map<Long, BriefingCandidate> collectCandidates() {
 		Map<Long, BriefingCandidate> map = new HashMap<>();
-		LocalDate utcToday = LocalDate.now(ZoneOffset.UTC);
-		LocalDate from = utcToday.minusDays(ASSISTANT_DUE_SCAN_DAYS);
-		LocalDate to = utcToday.plusDays(ASSISTANT_DUE_SCAN_DAYS);
-		LocalDateTime dueAtFrom = utcToday.minusDays(ASSISTANT_DUE_SCAN_DAYS).atStartOfDay();
-		LocalDateTime dueAtTo = utcToday.plusDays(ASSISTANT_DUE_SCAN_DAYS + 1L).atStartOfDay();
+		ZoneId scanZone = ZoneId.of(appProperties.getTaskReminder().getZone());
+		LocalDate today = LocalDate.now(scanZone);
+		LocalDate from = today.minusDays(ASSISTANT_DUE_SCAN_DAYS);
+		LocalDate to = today.plusDays(ASSISTANT_DUE_SCAN_DAYS);
+		LocalDateTime dueAtFrom = today.minusDays(ASSISTANT_DUE_SCAN_DAYS).atStartOfDay();
+		LocalDateTime dueAtTo = today.plusDays(ASSISTANT_DUE_SCAN_DAYS + 1L).atStartOfDay();
 
 		List<UserAssistantTask> assistantRows = userAssistantTaskRepository.findOpenTasksWithDueDateBetween(
 				UserAssistantTaskStatus.OPEN, from, to, dueAtFrom, dueAtTo);
@@ -145,9 +143,6 @@ public class DailyTaskBriefingService {
 			return false;
 		}
 		UserNotificationSettings settings = userNotificationSettingsService.getOrCreate(user);
-		if (!settings.isDailyTaskReminder()) {
-			return false;
-		}
 		if (DailyTaskBriefingEvaluator.alreadySentToday(user, settings.getDailyBriefingLastSentDate())) {
 			return false;
 		}
@@ -157,7 +152,7 @@ public class DailyTaskBriefingService {
 
 		List<UserAssistantTask> todayAssistant = filterAssistantTasksForToday(candidate.assistantTasks, today);
 		List<Task> todayGrowth = filterGrowthTasksForToday(candidate.growthTasks, today);
-		String weekDigest = resolveWeekDigestForBriefing(user, settings, candidate.companionMemory);
+		String weekDigest = resolveWeekDigestForBriefing(user, candidate.companionMemory);
 
 		if (todayAssistant.isEmpty() && todayGrowth.isEmpty() && !StringUtils.hasText(weekDigest)) {
 			return false;
@@ -207,16 +202,12 @@ public class DailyTaskBriefingService {
 		return task.getDueAt() != null && task.getDueAt().toLocalDate().equals(date);
 	}
 
-	private String resolveWeekDigestForBriefing(
-			AppUser user, UserNotificationSettings settings, UserCompanionMemory memory) {
+	private String resolveWeekDigestForBriefing(AppUser user, UserCompanionMemory memory) {
 		if (memory == null || !StringUtils.hasText(memory.getPendingDigestText())) {
 			return null;
 		}
 		ZoneId zone = TaskReminderDueEvaluator.resolveZone(user.getTimezone());
 		if (LocalDate.now(zone).getDayOfWeek() != DayOfWeek.SATURDAY) {
-			return null;
-		}
-		if (!settings.isWeeklyCompanionDigest()) {
 			return null;
 		}
 		if (!appProperties.getCompanionMemory().isEnabled()
@@ -286,17 +277,17 @@ public class DailyTaskBriefingService {
 	private void deliverBriefing(AppUser user, String title, String body) {
 		String providerKey = resolveDefaultProviderKey();
 		AppProperties.ChatProvider providerConfig = resolveProviderConfig(providerKey);
-		AiChatSession session = aiChatReminderSessionService.getOrCreateReminderSession(
-				user, providerKey, providerConfig.getModel());
-		AiChatMessage message = aiChatReminderSessionService.appendAssistantMessage(session, body);
+		AiChatReminderSessionService.NoticeDelivery delivery =
+				aiChatReminderSessionService.appendAssistantNoticeToLatestSession(
+						user, providerKey, providerConfig.getModel(), body);
 		inAppNotificationService.createAndPush(
 				user,
 				InAppNotificationType.TASK_DUE_REMINDER,
 				title,
 				truncate(body, 500),
 				null,
-				session,
-				message.getId());
+				delivery.session(),
+				delivery.message().getId());
 	}
 
 	private void markAssistantTasksReminded(

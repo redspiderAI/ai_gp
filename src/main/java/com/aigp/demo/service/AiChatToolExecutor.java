@@ -14,6 +14,7 @@ import org.springframework.stereotype.Component;
 public class AiChatToolExecutor {
 
 	private final UserAssistantTaskService userAssistantTaskService;
+	private final TaskService taskService;
 	private final GrowthPlanProposalService growthPlanProposalService;
 	private final ObjectMapper objectMapper;
 	private final AiChatPipelineDebugLog pipelineDebugLog;
@@ -53,6 +54,17 @@ public class AiChatToolExecutor {
 						longList(args.path("imageAssetIds")),
 						args.has("imageAssetIds"));
 				case "delete_task" -> userAssistantTaskService.cancelTaskJson(userId, args.path("taskId").asLong());
+				case "list_growth_tasks" -> taskService.listForUserOnDateJson(
+						userId, textOrNull(args.path("date")), textOrNull(args.path("status")));
+				case "complete_growth_task" -> taskService.completeTaskJson(
+						userId,
+						args.path("taskId").asLong(),
+						args.has("actualMinutes") && !args.path("actualMinutes").isNull()
+								? args.path("actualMinutes").asInt()
+								: null,
+						args.has("qualityScore") && !args.path("qualityScore").isNull()
+								? args.path("qualityScore").asInt()
+								: null);
 				case "propose_growth_plan" -> growthPlanProposalService.proposeFromToolJson(userId, args);
 				default -> "{\"error\":\"未知工具: " + toolName + "\"}";
 			};

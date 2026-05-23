@@ -43,12 +43,21 @@ public final class AssistantTaskDueParser {
 				if (!dueAtPresent) {
 					task.setDueAt(null);
 				}
-			} else {
+			} else if (!dueAtPresent || !StringUtils.hasText(dueAt)) {
+				// 仅当本轮未同时写入 dueAt 时才允许清空 due_date
 				task.setDueDate(null);
 				if (!dueAtPresent) {
 					task.setDueAt(null);
 				}
 			}
+		}
+		normalizeDue(task);
+	}
+
+	/** 保证有 due_at 时 due_date 同步为同日（兼容历史仅写时刻的落库）。 */
+	public static void normalizeDue(UserAssistantTask task) {
+		if (task.getDueAt() != null && task.getDueDate() == null) {
+			task.setDueDate(task.getDueAt().toLocalDate());
 		}
 	}
 

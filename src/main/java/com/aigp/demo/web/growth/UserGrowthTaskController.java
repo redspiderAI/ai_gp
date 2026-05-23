@@ -4,6 +4,7 @@ import com.aigp.demo.domain.task.Task;
 import com.aigp.demo.service.AppUserService;
 import com.aigp.demo.service.TaskService;
 import com.aigp.demo.service.TaskReminderDueEvaluator;
+import com.aigp.demo.service.UserAssistantTaskService;
 import com.aigp.demo.web.growth.dto.GrowthTaskCompleteRequest;
 import com.aigp.demo.web.growth.dto.GrowthTaskItemResponse;
 import com.aigp.demo.web.growth.dto.GrowthTaskListResponse;
@@ -31,7 +32,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 成长计划任务（tasks 表）执行与查询；每日提醒仍由助手待办 + task-reminder 负责。
+ * 成长计划任务（tasks 表）执行与查询；列表接口同时返回当日助手待办（user_assistant_tasks）。
  */
 @RestController
 @RequestMapping("/api/v1/users/me/growth-tasks")
@@ -43,17 +44,20 @@ public class UserGrowthTaskController {
 
 	private final TaskService taskService;
 	private final AppUserService appUserService;
+	private final UserAssistantTaskService userAssistantTaskService;
 
 	@GetMapping
-	@Operation(summary = "按日期查询成长计划任务")
+	@Operation(summary = "按日期查询成长计划任务", description = "date 省略时等同用户本地今天；同时返回 tasks 与 assistantTasks。")
 	public GrowthTaskListResponse list(
 			@CurrentUser JwtUserClaims user,
-			@RequestParam String date) {
-		LocalDate scheduledDate = parseRequiredDate(date);
-		List<GrowthTaskItemResponse> items = taskService.listForUserOnDate(user.userId(), scheduledDate).stream()
+			@RequestParam(required = false) String date) {
+		LocalDate scheduledDate = resolveQueryDate(user.userId(), date);
+		List<GrowthTaskItemResponse> growthItems = taskService.listForUserOnDate(user.userId(), scheduledDate).stream()
 				.map(GrowthTaskItemResponse::fromEntity)
 				.toList();
-		return new GrowthTaskListResponse(items.size(), items);
+		var assistantItems = userAssistantTaskService.listForUserOnDate(user.userId(), scheduledDate);
+		return new GrowthTaskListResponse(
+				growthItems.size(), growthItems, assistantItems.size(), assistantItems);
 	}
 
 	@PostMapping("/{taskId}/start")
@@ -90,10 +94,17 @@ public class UserGrowthTaskController {
 	@GetMapping("/today")
 	@Operation(summary = "查询用户本地「今天」的计划任务")
 	public GrowthTaskListResponse listToday(@CurrentUser JwtUserClaims user) {
-		var u = appUserService.requireActive(user.userId());
+		return list(user, null);
+	}
+
+	/** 解析查询日：有 date 参数则用参数；否则取用户时区下的今天。 */
+	private LocalDate resolveQueryDate(Long userId, String date) {
+		if (StringUtils.hasText(date)) {
+			return parseRequiredDate(date);
+		}
+		var u = appUserService.requireActive(userId);
 		ZoneId zone = TaskReminderDueEvaluator.resolveZone(u.getTimezone());
-		LocalDate today = LocalDate.now(zone);
-		return list(user, today.toString());
+		return LocalDate.now(zone);
 	}
 
 	/** 解析查询参数 date，固定 yyyy-MM-dd（月、日须补零）。 */

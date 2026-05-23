@@ -134,10 +134,14 @@ public class AppProperties {
 		/** 站内通知创建后 WebSocket 推送给在线用户 */
 		private boolean pushEnabled = true;
 		/** 每分钟第 0 秒触发（按用户本地 due_at 到点提醒） */
-		private String cron = "0 * * * * ?";
+		private String cron = "0/30 * * * * ?";
 		private String zone = "Asia/Shanghai";
 		/** 仅 due_date、无 due_at 时，在截止日当天该时刻提醒（HH:mm）；亦为每日任务摘要时刻 */
 		private String defaultDueDateReminderTime = "08:00";
+		/** 是否将提醒扫描/投递过程写入调试 txt（默认开启，生产可用环境变量关闭） */
+		private boolean debugLogEnabled = true;
+		/** 提醒调试日志路径（相对进程工作目录） */
+		private String debugLogFile = "logs/task-reminder.txt";
 	}
 
 	/**

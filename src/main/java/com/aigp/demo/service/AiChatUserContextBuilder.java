@@ -3,6 +3,7 @@ package com.aigp.demo.service;
 import com.aigp.demo.domain.user.AppUser;
 import com.aigp.demo.domain.user.IdentityType;
 import com.aigp.demo.repository.UserIdentityRepository;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -35,6 +36,8 @@ public class AiChatUserContextBuilder {
 			- 日期部分：未说明哪一天时，默认用【当前日期】；若该日已无合理提醒时刻，可用次日。
 			- 时刻部分：由你结合事项与【当前日期时间】推荐一个合理整点或半点（如喝水可约 1～2 小时后或下一整点），不要只填 dueDate 而无 dueAt。
 			- 用户已明确时刻时，严格按用户语义填写 dueAt，不要擅自改点。
+			- 创建成功后，向用户确认已设置提醒；**不要**声称「无法在指定时间主动推送」——后端会在到点自动投递：写入当前聊天会话、站内通知，并 WebSocket 推送（用户在线时聊天页可实时刷新）。
+			- 用户问「到时候怎么提醒」时，说明：到点会在 App 聊天里收到助手消息，并有通知提醒；请保持 App 在线或允许系统通知。
 
 			日期格式：yyyy-MM-dd；时刻格式：yyyy-MM-dd HH:mm。请结合下方上下文回复；未提供的信息不要编造。
 			""";
@@ -46,6 +49,25 @@ public class AiChatUserContextBuilder {
 			能创建就不要只追问；信息够用时立即 create_task，避免与上文重复确认。
 			用户要查看/回顾计划或待办时，必须调用 list_tasks（使用 OpenAI 标准 tool_calls），禁止在正文里写 <tool_call> 等 XML。
 			用户问「未来几天」「未来N天」时：list_tasks 的 dueFrom 填明天（yyyy-MM-dd），dueTo 按天数填截止日；不要把「今天」算进未来。
+			""";
+
+	private static final String COMPLETE_TASK_RULES =
+			"""
+
+			【标记任务已完成】
+			- 用户说「XX完成了」「做完了」「搞定了」等：先 list_growth_tasks（date 默认今天）与 list_tasks（dueFrom/dueTo=【当前日期】，status=OPEN）查候选，**禁止未查就瞎猜 taskId**。
+			- 用户说「今天」且未给具体日期时，date / dueFrom / dueTo 均用【当前日期】；用户明确说了「昨天」「5月20号」等则用对应日期。
+			- 标题匹配：在候选里按用户描述模糊匹配 title；**唯一**匹配则立即 complete_growth_task 或 update_task(status=DONE)；**多条**匹配则列出并请用户确认是哪一条；**零条**则说明未找到，不要编造已完成。
+			- 成长计划任务（tasks 表）：用 complete_growth_task；助手待办（user_assistant_tasks）：用 update_task 设 status=DONE。
+			- 同一事项可能同时存在于两表（如「[学习计划] 英语」与 growth 任务「英语」）；优先 complete_growth_task，会自动同步助手待办；若仅助手待办则 update_task。
+			- 用户未指明是哪项、且今日候选多于一条时，**必须追问**，不要默认猜第一个。
+			""";
+
+	private static final String GROWTH_TASK_TOOL_RULES =
+			"""
+
+			【成长计划每日任务（tasks 表）】
+			用户查看或完成「学习计划里的今日任务」时，调用 list_growth_tasks / complete_growth_task；勿与 propose_growth_plan（未确认草案）混淆。
 			""";
 
 	private static final String PLAN_PROPOSAL_TOOL_RULES =
@@ -65,6 +87,7 @@ public class AiChatUserContextBuilder {
 			AppUser user,
 			AiChatDataPlan plan,
 			String tasksSummary,
+			String growthTasksSummary,
 			String intentHint,
 			String unsupportedHint,
 			List<Long> messageImageAssetIds) {
@@ -87,6 +110,13 @@ public class AiChatUserContextBuilder {
 		}
 		if (plan != null && plan.needTaskTools()) {
 			sb.append(TASK_TOOL_RULES);
+			sb.append(COMPLETE_TASK_RULES);
+		}
+		if (plan != null && plan.needGrowthPlanTools()) {
+			sb.append(GROWTH_TASK_TOOL_RULES);
+			if (!plan.needTaskTools()) {
+				sb.append(COMPLETE_TASK_RULES);
+			}
 		}
 		if (plan != null && plan.needPlanProposalTools()) {
 			sb.append(PLAN_PROPOSAL_TOOL_RULES);
@@ -121,6 +151,15 @@ public class AiChatUserContextBuilder {
 				sb.append(tasksSummary.trim());
 			} else {
 				sb.append("（当前筛选条件下暂无任务）");
+			}
+		}
+		if (plan == null || plan.needGrowthTaskList()) {
+			sb.append("\n【今日成长计划任务摘要（详细请用 list_growth_tasks 查询）】\n");
+			if (StringUtils.hasText(growthTasksSummary)) {
+				sb.append(growthTasksSummary.trim());
+			} else {
+				LocalDate today = LocalDate.now(resolveZone(user.getTimezone()));
+				sb.append("（").append(today).append(" 暂无成长计划任务；未确认计划则无数据）");
 			}
 		}
 		return sb.toString();

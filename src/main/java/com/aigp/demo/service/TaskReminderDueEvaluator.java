@@ -33,6 +33,27 @@ public final class TaskReminderDueEvaluator {
 		return !alreadyRemindedForDue(task, dueMoment);
 	}
 
+	/** 未到点或未满足发送条件时的人类可读原因（供调试日志）；可发送则返回 {@code null}。 */
+	public static String explainSkipReason(
+			UserAssistantTask task, AppUser user, LocalTime defaultDateOnlyReminderTime) {
+		if (user.getStatus() == null || user.getStatus() != 1) {
+			return "user_status_not_active status=" + user.getStatus();
+		}
+		ZoneId zone = resolveZone(user.getTimezone());
+		LocalDateTime nowMinute = LocalDateTime.now(zone).truncatedTo(ChronoUnit.MINUTES);
+		LocalDateTime dueMoment = resolveDueMoment(task, defaultDateOnlyReminderTime);
+		if (dueMoment == null) {
+			return "no_due_moment dueAt=" + task.getDueAt() + " dueDate=" + task.getDueDate();
+		}
+		if (nowMinute.isBefore(dueMoment)) {
+			return "not_yet_due now=" + nowMinute + " due=" + dueMoment + " zone=" + zone.getId();
+		}
+		if (alreadyRemindedForDue(task, dueMoment)) {
+			return "already_reminded reminderSentAt=" + task.getReminderSentAt() + " due=" + dueMoment;
+		}
+		return null;
+	}
+
 	/** 计算本次到期的提醒时刻（用户本地，精确到分）。 */
 	public static LocalDateTime resolveDueMoment(UserAssistantTask task, LocalTime defaultDateOnlyReminderTime) {
 		if (task.getDueAt() != null) {

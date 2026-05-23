@@ -442,14 +442,14 @@ DELETE /api/v1/users/me/push-tokens
 |------|------|------|
 | type | string | 固定 `TASK_DUE_REMINDER` |
 | notificationId | number | 通知 ID |
-| sessionId | number | 「任务提醒」会话 ID |
+| sessionId | number | 写入消息的会话 ID（通常为**用户最近活跃会话**；从未聊过则为「任务提醒」兜底会话） |
 | messageId | number | 会话内消息 ID |
 | taskId | number \| null | 单任务提醒时有值；每日合并摘要时为 `null` |
 | title | string | 通知标题（如 `早安 · 今日待办`、周六 `早安 · 今日待办与本周回顾`） |
 | body | string | 通知正文（含鼓励语、当日待办列表；周六可含【本周回顾】） |
 | unreadCount | number | 站内通知未读数 |
 
-用户本地 **每日** `app.task-reminder.default-due-date-reminder-time`（默认 `08:00`）投递一条合并消息；需 `daily_task_reminder=true`。非摘要时刻的 `due_at` 仍可能收到单任务提醒。
+用户本地 **每日** `app.task-reminder.default-due-date-reminder-time`（默认 `08:00`）投递一条合并消息。**当前实现不读库开关，任务提醒恒为开启**。非摘要时刻的 `due_at` 仍走单任务提醒。
 
 **每周陪伴回顾**（`type` = `WEEKLY_COMPANION_DIGEST`）：
 

@@ -32,9 +32,11 @@ GET /api/v1/users/me/growth-tasks?date=2026-05-22
 
 | 参数 | 必填 | 格式 | 说明 |
 |------|------|------|------|
-| `date` | 是 | `yyyy-MM-dd` | 月、日须补零（如 `2026-05-22`，**不要**写 `2026-5-22`） |
+| `date` | 否 | `yyyy-MM-dd` | 月、日须补零；**省略时按用户时区取今天**（与 `/today` 相同） |
 
 非法格式返回 **400**（`BAD_REQUEST`），不再误报 500。
+
+响应同时包含 `assistantTasks[]`（`user_assistant_tasks`，截止日为 `date`），规则同 §2.2。
 
 ### 2.2 用户本地今天
 
@@ -42,7 +44,14 @@ GET /api/v1/users/me/growth-tasks?date=2026-05-22
 GET /api/v1/users/me/growth-tasks/today
 ```
 
-响应 `tasks[]` 含 `plannedEndAt`，便于前端展示倒计时。
+响应字段：
+
+| 字段 | 来源表 | 说明 |
+|------|--------|------|
+| `count` / `tasks[]` | `tasks` | 成长计划任务，`scheduledDate` = 用户本地今天 |
+| `assistantCount` / `assistantTasks[]` | `user_assistant_tasks` | 助手待办，`due_date` 或 `due_at` 落在今天（全部状态） |
+
+`tasks[]` 含 `plannedEndAt`，便于前端展示倒计时。助手待办字段与 `GET /api/v1/users/me/tasks` 单项结构一致（含 `dueDate`、`dueAt`、`reminderSentAt` 等）。
 
 ---
 

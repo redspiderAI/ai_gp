@@ -22,12 +22,14 @@ paths:
     get:
       tags: [成长计划任务]
       summary: 按日期查询成长计划任务
+      description: |
+        同时返回指定日期的成长计划 `tasks` 与助手待办 `assistantTasks`（规则同 `/today`）。
       operationId: listGrowthTasksByDate
       parameters:
         - name: date
           in: query
-          required: true
-          description: 计划执行日，格式 yyyy-MM-dd（月、日须补零，如 2026-05-22）
+          required: false
+          description: 计划执行日 yyyy-MM-dd（月日补零）。省略时按用户时区取「今天」，等同 `/today`。
           schema:
             type: string
             format: date
@@ -48,6 +50,10 @@ paths:
     get:
       tags: [成长计划任务]
       summary: 查询用户本地今天的计划任务
+      description: |
+        同时返回：
+        - `tasks`：`tasks` 表，`scheduledDate` 为今天的成长计划任务；
+        - `assistantTasks`：`user_assistant_tasks` 表，`due_date` 或 `due_at` 落在今天的助手待办（含 OPEN/DONE/CANCELLED）。
       operationId: listGrowthTasksToday
       responses:
         '200':
@@ -185,10 +191,56 @@ components:
       properties:
         count:
           type: integer
+          description: 成长计划 tasks 条数
         tasks:
           type: array
           items:
             $ref: '#/components/schemas/GrowthTaskItemResponse'
+        assistantCount:
+          type: integer
+          description: 助手待办条数（截止日为查询日）
+        assistantTasks:
+          type: array
+          description: user_assistant_tasks 表
+          items:
+            $ref: '#/components/schemas/UserAssistantTaskItemResponse'
+
+    UserAssistantTaskItemResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [OPEN, DONE, CANCELLED]
+        dueDate:
+          type: string
+          format: date
+          nullable: true
+        dueAt:
+          type: string
+          format: date-time
+          nullable: true
+        imageUrls:
+          type: array
+          items:
+            type: string
+        reminderSentAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
 
     GrowthTaskCompleteRequest:
       type: object

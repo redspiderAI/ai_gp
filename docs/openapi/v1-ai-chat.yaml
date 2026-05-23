@@ -468,6 +468,7 @@ components:
           type: integer
           format: int64
           nullable: true
+          description: 提醒消息写入的会话 ID（通常为最近活跃会话；无历史对话时为「任务提醒」兜底会话）
         messageId:
           type: integer
           format: int64

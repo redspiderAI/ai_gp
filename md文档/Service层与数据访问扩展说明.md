@@ -303,7 +303,7 @@ TaskService.complete | skip
 | `AiChatUserContextBuilder` | 组装 system 提示（画像 + 任务摘要） |
 | `AiChatToolExecutor` | 执行 `list_tasks` / `create_task` 等工具 |
 | `UserAssistantTaskService` | 助手任务 CRUD 与对话用 JSON 摘要 |
-| `AiChatReminderSessionService` | 「任务提醒」固定会话与写入助手消息 |
+| `AiChatReminderSessionService` | 定时提醒/摘要写入**最新用户会话**（无则「任务提醒」兜底） |
 | `AssistantTaskReminderService` | 到期扫描、站内通知与提醒正文 |
 | `AssistantTaskReminderScheduler` | 定时触发提醒 |
 | `InAppNotificationService` | 通知 CRUD、WebSocket 载荷组装 |

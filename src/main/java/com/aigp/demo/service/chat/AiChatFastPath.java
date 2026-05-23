@@ -94,6 +94,9 @@ public final class AiChatFastPath {
 		if (!StringUtils.hasText(text)) {
 			return false;
 		}
+		if (text.contains("完成了") || text.contains("做完了") || text.contains("标记完成")) {
+			return false;
+		}
 		return text.contains("成长计划")
 				|| text.contains("里程碑")
 				|| text.contains("目标拆解")

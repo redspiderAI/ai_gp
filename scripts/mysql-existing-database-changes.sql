@@ -65,3 +65,105 @@ ALTER TABLE tasks
 
 ALTER TABLE tasks
     MODIFY COLUMN status ENUM('PENDING','IN_PROGRESS','COMPLETED','SKIPPED','INCOMPLETE') NOT NULL DEFAULT 'PENDING';
+
+-- ---------------------------------------------------------------------------
+-- 时区统一：Hibernate jdbc.time_zone 由 UTC 改为 Asia/Shanghai 时执行一次
+-- 旧版落库比北京时间少 8 小时，需 +8 后与业务/DB 客户端显示一致
+-- 全新空库可跳过本段；已按北京时间手工写入的数据勿重复执行
+-- ---------------------------------------------------------------------------
+
+UPDATE user_assistant_tasks SET
+    due_at = IF(due_at IS NOT NULL, DATE_ADD(due_at, INTERVAL 8 HOUR), NULL),
+    reminder_sent_at = IF(reminder_sent_at IS NOT NULL, DATE_ADD(reminder_sent_at, INTERVAL 8 HOUR), NULL),
+    created_at = DATE_ADD(created_at, INTERVAL 8 HOUR),
+    updated_at = DATE_ADD(updated_at, INTERVAL 8 HOUR);
+
+UPDATE ai_chat_sessions SET
+    created_at = DATE_ADD(created_at, INTERVAL 8 HOUR),
+    updated_at = DATE_ADD(updated_at, INTERVAL 8 HOUR);
+
+UPDATE ai_chat_messages SET
+    created_at = DATE_ADD(created_at, INTERVAL 8 HOUR);
+
+UPDATE user_in_app_notifications SET
+    read_at = IF(read_at IS NOT NULL, DATE_ADD(read_at, INTERVAL 8 HOUR), NULL),
+    created_at = DATE_ADD(created_at, INTERVAL 8 HOUR);
+
+UPDATE users SET
+    created_at = DATE_ADD(created_at, INTERVAL 8 HOUR),
+    updated_at = DATE_ADD(updated_at, INTERVAL 8 HOUR);
+
+UPDATE user_identities SET
+    verified_at = IF(verified_at IS NOT NULL, DATE_ADD(verified_at, INTERVAL 8 HOUR), NULL),
+    created_at = DATE_ADD(created_at, INTERVAL 8 HOUR);
+
+UPDATE user_sessions SET
+    expires_at = IF(expires_at IS NOT NULL, DATE_ADD(expires_at, INTERVAL 8 HOUR), NULL),
+    created_at = DATE_ADD(created_at, INTERVAL 8 HOUR),
+    revoked_at = IF(revoked_at IS NOT NULL, DATE_ADD(revoked_at, INTERVAL 8 HOUR), NULL);
+
+UPDATE user_notification_settings SET
+    created_at = DATE_ADD(created_at, INTERVAL 8 HOUR),
+    updated_at = DATE_ADD(updated_at, INTERVAL 8 HOUR);
+
+UPDATE user_push_devices SET
+    created_at = DATE_ADD(created_at, INTERVAL 8 HOUR),
+    updated_at = DATE_ADD(updated_at, INTERVAL 8 HOUR);
+
+UPDATE user_companion_memory SET
+    last_summarized_at = IF(last_summarized_at IS NOT NULL, DATE_ADD(last_summarized_at, INTERVAL 8 HOUR), NULL),
+    created_at = DATE_ADD(created_at, INTERVAL 8 HOUR),
+    updated_at = DATE_ADD(updated_at, INTERVAL 8 HOUR);
+
+UPDATE growth_plan_proposals SET
+    expires_at = IF(expires_at IS NOT NULL, DATE_ADD(expires_at, INTERVAL 8 HOUR), NULL),
+    confirmed_at = IF(confirmed_at IS NOT NULL, DATE_ADD(confirmed_at, INTERVAL 8 HOUR), NULL),
+    rejected_at = IF(rejected_at IS NOT NULL, DATE_ADD(rejected_at, INTERVAL 8 HOUR), NULL),
+    created_at = DATE_ADD(created_at, INTERVAL 8 HOUR),
+    updated_at = DATE_ADD(updated_at, INTERVAL 8 HOUR);
+
+UPDATE goals SET
+    created_at = DATE_ADD(created_at, INTERVAL 8 HOUR),
+    updated_at = DATE_ADD(updated_at, INTERVAL 8 HOUR);
+
+UPDATE milestones SET
+    completed_at = IF(completed_at IS NOT NULL, DATE_ADD(completed_at, INTERVAL 8 HOUR), NULL),
+    created_at = DATE_ADD(created_at, INTERVAL 8 HOUR),
+    updated_at = DATE_ADD(updated_at, INTERVAL 8 HOUR);
+
+UPDATE plans SET
+    generated_at = IF(generated_at IS NOT NULL, DATE_ADD(generated_at, INTERVAL 8 HOUR), NULL),
+    created_at = DATE_ADD(created_at, INTERVAL 8 HOUR);
+
+UPDATE tasks SET
+    completed_at = IF(completed_at IS NOT NULL, DATE_ADD(completed_at, INTERVAL 8 HOUR), NULL),
+    started_at = IF(started_at IS NOT NULL, DATE_ADD(started_at, INTERVAL 8 HOUR), NULL),
+    created_at = DATE_ADD(created_at, INTERVAL 8 HOUR),
+    updated_at = DATE_ADD(updated_at, INTERVAL 8 HOUR);
+
+UPDATE user_media_assets SET
+    created_at = DATE_ADD(created_at, INTERVAL 8 HOUR);
+
+UPDATE ai_invoke_logs SET
+    created_at = DATE_ADD(created_at, INTERVAL 8 HOUR);
+
+UPDATE ai_feedback SET
+    generated_at = DATE_ADD(generated_at, INTERVAL 8 HOUR);
+
+UPDATE ai_prompts SET
+    created_at = DATE_ADD(created_at, INTERVAL 8 HOUR),
+    updated_at = DATE_ADD(updated_at, INTERVAL 8 HOUR);
+
+UPDATE admin_users SET
+    last_login_at = IF(last_login_at IS NOT NULL, DATE_ADD(last_login_at, INTERVAL 8 HOUR), NULL),
+    created_at = DATE_ADD(created_at, INTERVAL 8 HOUR),
+    updated_at = DATE_ADD(updated_at, INTERVAL 8 HOUR);
+
+UPDATE user_llm_settings SET
+    created_at = DATE_ADD(created_at, INTERVAL 8 HOUR),
+    updated_at = DATE_ADD(updated_at, INTERVAL 8 HOUR);
+
+-- user_assistant_tasks：仅有 due_at、due_date 为空的历史数据补全（可重复执行）
+UPDATE user_assistant_tasks
+SET due_date = DATE(due_at)
+WHERE due_at IS NOT NULL AND due_date IS NULL;

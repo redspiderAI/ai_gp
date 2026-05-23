@@ -9,11 +9,17 @@ import com.aigp.demo.domain.user.AppUser;
 import com.aigp.demo.exception.ConflictException;
 import com.aigp.demo.exception.NotFoundException;
 import com.aigp.demo.repository.TaskRepository;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,10 +31,109 @@ public class TaskService {
 
 	private final TaskRepository taskRepository;
 	private final AppUserService appUserService;
+	private final UserAssistantTaskService userAssistantTaskService;
+	private final ObjectMapper objectMapper;
 
 	@Transactional(readOnly = true)
 	public List<Task> listForUserOnDate(Long userId, LocalDate scheduledDate) {
 		return taskRepository.findByUser_IdAndScheduledDateOrderByCreatedAtAsc(userId, scheduledDate);
+	}
+
+	/** 供 AI 对话工具：按用户本地自然日查询成长计划任务（JSON）。 */
+	@Transactional(readOnly = true)
+	public String listForUserOnDateJson(Long userId, String date, String statusFilter) {
+		AppUser user = appUserService.requireActive(userId);
+		LocalDate scheduledDate = resolveQueryDate(user, date);
+		List<Task> tasks = listForUserOnDate(userId, scheduledDate);
+		if (StringUtils.hasText(statusFilter)) {
+			TaskStatus st = parseGrowthStatus(statusFilter);
+			tasks = tasks.stream().filter(t -> t.getStatus() == st).toList();
+		}
+		List<Map<String, Object>> rows = new ArrayList<>();
+		for (Task t : tasks) {
+			rows.add(toChatMap(t));
+		}
+		return toJson(Map.of(
+				"ok", true,
+				"date", scheduledDate.toString(),
+				"tasks", rows,
+				"count", rows.size()));
+	}
+
+	/** 供 AI 对话工具：标记成长计划任务已完成（等同 HTTP complete 接口规则）。 */
+	@Transactional
+	public String completeTaskJson(Long userId, Long taskId, Integer actualMinutes, Integer qualityScore) {
+		Task task = complete(userId, taskId, actualMinutes, qualityScore);
+		userAssistantTaskService.markDoneForLinkedGrowthPlanTask(
+				userId, task.getTitle(), task.getScheduledDate());
+		return toJson(Map.of("ok", true, "task", toChatMap(task)));
+	}
+
+	/** 供 AI system 注入：今日成长计划任务摘要。 */
+	@Transactional(readOnly = true)
+	public String buildGrowthTasksSummaryForChat(Long userId, LocalDate date) {
+		List<Task> tasks = listForUserOnDate(userId, date);
+		if (tasks.isEmpty()) {
+			return null;
+		}
+		StringBuilder sb = new StringBuilder();
+		sb.append("（计划日 ").append(date).append("）\n");
+		for (Task t : tasks) {
+			sb.append("- [id=")
+					.append(t.getId())
+					.append("] ")
+					.append(t.getTitle())
+					.append("（")
+					.append(t.getStatus().name())
+					.append("）");
+			if (t.getEstimatedMinutes() != null && t.getEstimatedMinutes() > 0) {
+				sb.append("，预计 ").append(t.getEstimatedMinutes()).append(" 分钟");
+			}
+			sb.append('\n');
+		}
+		return sb.toString();
+	}
+
+	private LocalDate resolveQueryDate(AppUser user, String date) {
+		if (StringUtils.hasText(date)) {
+			try {
+				return LocalDate.parse(date.trim());
+			} catch (DateTimeParseException e) {
+				throw new IllegalArgumentException("date 格式须为 yyyy-MM-dd");
+			}
+		}
+		ZoneId zone = TaskReminderDueEvaluator.resolveZone(user.getTimezone());
+		return LocalDate.now(zone);
+	}
+
+	private static TaskStatus parseGrowthStatus(String raw) {
+		try {
+			return TaskStatus.valueOf(raw.trim().toUpperCase());
+		} catch (IllegalArgumentException e) {
+			throw new IllegalArgumentException("status 须为 PENDING、IN_PROGRESS、COMPLETED 等成长任务状态");
+		}
+	}
+
+	private Map<String, Object> toChatMap(Task t) {
+		Map<String, Object> m = new LinkedHashMap<>();
+		m.put("id", t.getId());
+		m.put("title", t.getTitle());
+		m.put("description", t.getDescription());
+		m.put("scheduledDate", t.getScheduledDate() == null ? null : t.getScheduledDate().toString());
+		m.put("status", t.getStatus().name());
+		m.put("estimatedMinutes", t.getEstimatedMinutes());
+		m.put("startedAt", t.getStartedAt() == null ? null : t.getStartedAt().toString());
+		m.put("completedAt", t.getCompletedAt() == null ? null : t.getCompletedAt().toString());
+		m.put("actualMinutes", t.getActualMinutes());
+		return m;
+	}
+
+	private String toJson(Object value) {
+		try {
+			return objectMapper.writeValueAsString(value);
+		} catch (JsonProcessingException e) {
+			return "{\"error\":\"序列化失败\"}";
+		}
 	}
 
 	/**

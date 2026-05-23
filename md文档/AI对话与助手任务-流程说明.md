@@ -84,18 +84,28 @@ flowchart TD
 
 ---
 
-## 4. 助手任务（AI 可执行的操作）
+## 4. 助手任务与成长计划任务（AI 可执行的操作）
 
-大模型通过后端工具操作 `user_assistant_tasks` 表，对用户可见能力如下：
+### 4.1 助手待办（`user_assistant_tasks`）
 
 | 用户说法示例 | 后端行为 |
 |--------------|----------|
-| 「帮我记周五交报告」 | 创建任务，`status=OPEN`，可选 `dueDate` |
-| 「我有哪些没做的？」 | 列出任务，可按 `OPEN` / `DONE` / `CANCELLED` 筛选 |
-| 「把 3 号任务标成完成」 | 更新 `status=DONE` |
-| 「那个任务不要了」 | 取消任务（`status=CANCELLED`） |
+| 「帮我记周五交报告」 | `create_task`，`status=OPEN`，可选 `dueDate` / `dueAt` |
+| 「我有哪些没做的？」 | `list_tasks`，可按 `OPEN` / `DONE` / `CANCELLED` 筛选 |
+| 「把 3 号任务标成完成」 | `update_task`，`status=DONE` |
+| 「那个任务不要了」 | `delete_task`（`status=CANCELLED`） |
 
-用户也可不经过 AI，直接调用 **`GET /api/v1/users/me/tasks`** 查看任务清单（可选 `status` 查询参数）。
+### 4.2 成长计划每日任务（`tasks` 表，用户确认计划后才有）
+
+| 用户说法示例 | 后端行为 |
+|--------------|----------|
+| 「我今天的英语学习任务完成了」 | 先 `list_growth_tasks`（date 默认今天）+ `list_tasks` 匹配标题；**唯一**匹配则 `complete_growth_task` 或 `update_task(DONE)` |
+| 多条候选 / 日期不明 | **必须追问用户**，禁止瞎猜 taskId |
+| 用户明确「昨天」「5月20号」 | `date` / `dueFrom` / `dueTo` 用对应日期，非今天 |
+
+`complete_growth_task` 成功后会同步将同日 `[学习计划] {标题}` 助手待办置为 `DONE`。
+
+用户也可不经过 AI，直接调用 **`GET /api/v1/users/me/tasks`** 或 **`GET /api/v1/users/me/growth-tasks/today`**。
 
 ---
 
@@ -103,19 +113,23 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    T[每分钟 cron] --> L[scheduler_lock 单飞]
+    T[每 30 秒 cron + 近期到点一次性调度] --> L[scheduler_lock 单飞]
     L --> U[粗筛 OPEN 任务候选]
     U --> Z{用户本地 due_at 已到?}
     Z -->|否| W[跳过]
-    Z -->|是| V{daily_task_reminder 开?}
+    Z -->|是| V{app.task-reminder 开?}
     V -->|否| W
-    V -->|是| X[「任务提醒」会话 + 站内通知 + WS]
+    V -->|是| X[最新用户会话（或兜底「任务提醒」）+ 站内通知 + WS]
 ```
 
-- **触发**：`AssistantTaskReminderScheduler`，cron 默认 **`0 * * * * ?`**（每分钟，时区见 `app.task-reminder.zone`）。
-- **到点规则**：
+- **触发**：
+  - `AssistantTaskReminderScheduler`，cron 默认 **`0/30 * * * * ?`**（每 30 秒，时区见 `app.task-reminder.zone`）。
+  - **`AssistantTaskNearDueScheduleService`**：创建/更新带 `due_at` 的任务后，为 48 小时内到期的任务注册**一次性**调度（如「3 分钟后提醒我」），到点即触发，不依赖整分钟 tick；服务重启后由 `AssistantTaskReminderStartupRunner` 补注册。
+- **到点规则**（`daily_task_reminder` 库字段保留但**代码侧恒为开启**，不再拦截推送）：
   - 有 **`due_at`**（`yyyy-MM-dd HH:mm`，用户本地）：当前用户当地时间 ≥ `due_at` 且尚未针对该次到期发过提醒 → 发送。
   - 仅有 **`due_date`**：在截止日当天 **`app.task-reminder.default-due-date-reminder-time`**（默认 `08:00`）发送。
+- **扫描**：每 30 秒 cron；`due_at` 在「近 36 小时～未来 48 小时」内粗筛；**已逾期且 `reminder_sent_at` 为空**的任务不受 36 小时下限限制（启动/补发）。
+- **启动补发**：应用启动后立即执行一次与 cron 相同的扫描，并为近期 `due_at` 任务补注册一次性调度（`AssistantTaskReminderStartupRunner`）。
 - **幂等**：`reminder_sent_at` 不早于本次到期时刻则不再重复发；用户修改 `due_at` 后可再次提醒。
 - **多实例**：`scheduler_lock` 表互斥，避免重复投递。
 - **每日 8 点摘要**（用户本地 `default-due-date-reminder-time`，默认 `08:00`）：
@@ -124,8 +138,9 @@ flowchart LR
   - 幂等：`user_notification_settings.daily_briefing_last_sent_date`。
   - 当日 `08:00` 到点的助手任务**不再**逐条重复推送；其他时刻的 `due_at` 仍按单任务提醒。
 - **单任务到点**（非 8 点摘要覆盖的场景）：模板文案（非现场调大模型）。
-- **会话**：固定 **「任务提醒」** 会话，`ASSISTANT` 消息。
-- **通知**：`user_in_app_notifications` + 可选 WebSocket（见下节）。
+- **会话**：写入用户 **最近活跃的非系统会话**（按 `updated_at`）；若从未对话则落入 **「任务提醒」** 兜底会话。消息角色为 `ASSISTANT`。
+- **通知**：`user_in_app_notifications` + WebSocket（`TASK_DUE_REMINDER`）；同时推送 `CHAT_REPLY` 便于聊天页实时刷新。
+- **排查日志**：`app.task-reminder.debug-log-enabled=true` 时写入 `logs/task-reminder.txt`（每 tick 候选数、跳过原因、投递结果、近期到点调度注册/触发）。
 
 相关配置：`enabled`、`in-app-enabled`、`push-enabled`、`cron`、`zone`、`default-due-date-reminder-time`。  
 数据库：`scripts/mysql-scheduler-lock.sql`、`scripts/mysql-user-assistant-tasks-reminder-index.sql`（或 `run-mysql-migrations.py`）。
@@ -275,8 +290,9 @@ flowchart TD
 | 任务工具执行 | `AiChatToolExecutor` |
 | 大模型 HTTP 客户端 | `OpenAiCompatibleChatClient` |
 | 到期提醒 | `AssistantTaskReminderService`、`AssistantTaskReminderScheduler` |
+| 近期到点调度 | `AssistantTaskNearDueScheduleService` |
+| 启动补发 | `AssistantTaskReminderStartupRunner` |
 | 陪伴记忆周总结 | `CompanionMemoryService`、`CompanionMemoryScheduler` |
-| 提醒专用会话 | `AiChatReminderSessionService` |
 | 站内通知 + 推送 | `InAppNotificationService`、`ChatRealtimePushService` |
 
 ---

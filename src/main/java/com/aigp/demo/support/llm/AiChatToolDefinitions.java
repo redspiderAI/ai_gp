@@ -99,7 +99,13 @@ public final class AiChatToolDefinitions {
 										"description",
 										Map.of("type", "string"),
 										"status",
-										Map.of("type", "string", "enum", List.of("OPEN", "DONE", "CANCELLED")),
+										Map.of(
+												"type",
+												"string",
+												"enum",
+												List.of("OPEN", "DONE", "CANCELLED"),
+												"description",
+												"可选；用户说任务/待办「完成了」时设为 DONE"),
 										"dueDate",
 										Map.of("type", "string", "description", "yyyy-MM-dd；空字符串清除日期"),
 										"dueAt",
@@ -126,6 +132,53 @@ public final class AiChatToolDefinitions {
 								"object",
 								"properties",
 								Map.of("taskId", Map.of("type", "integer", "description", "任务 ID")),
+								"required",
+								List.of("taskId"))));
+	}
+
+	/** 成长计划 tasks 表：查询与标记完成（用户确认计划后入库的任务）。 */
+	public static List<Map<String, Object>> growthTaskTools() {
+		return List.of(
+				tool(
+						"list_growth_tasks",
+						"查询用户成长计划每日任务（tasks 表）。用户说「今天的学习任务」或要标记计划任务完成前先调用。",
+						Map.of(
+								"type",
+								"object",
+								"properties",
+								Map.of(
+										"date",
+										Map.of(
+												"type",
+												"string",
+												"description",
+												"计划执行日 yyyy-MM-dd；省略则用用户本地今天"),
+										"status",
+										Map.of(
+												"type",
+												"string",
+												"description",
+												"可选，按状态筛选：PENDING/IN_PROGRESS/COMPLETED 等")),
+								"required",
+								List.of())),
+				tool(
+						"complete_growth_task",
+						"将成长计划任务标记为已完成（tasks 表，等同 App 内「完成」）。仅 PENDING/IN_PROGRESS 且须在计划日当天。",
+						Map.of(
+								"type",
+								"object",
+								"properties",
+								Map.of(
+										"taskId",
+										Map.of("type", "integer", "description", "成长计划任务 ID（来自 list_growth_tasks）"),
+										"actualMinutes",
+										Map.of("type", "integer", "description", "可选，实际耗时分钟"),
+										"qualityScore",
+										Map.of(
+												"type",
+												"integer",
+												"description",
+												"可选，自评 1～5")),
 								"required",
 								List.of("taskId"))));
 	}

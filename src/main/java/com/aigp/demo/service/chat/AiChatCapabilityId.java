@@ -15,7 +15,7 @@ public enum AiChatCapabilityId {
 	ASSISTANT_TASKS("assistant_tasks", "助手待办：记录、查询、修改、取消", true),
 	/** AI 生成成长计划草案，待用户确认后入库（非直接写 tasks 表） */
 	PLAN_PROPOSAL("plan_proposal", "成长计划草案：拟定方案供用户确认", true),
-	GROWTH_PLAN_TASKS("growth_plan_tasks", "成长计划每日任务（goals/plans/tasks 表）", false),
+	GROWTH_PLAN_TASKS("growth_plan_tasks", "成长计划每日任务：查询与标记完成（tasks 表）", true),
 	GOALS("goals", "长期目标与里程碑管理", false);
 
 	private final String id;

@@ -10,6 +10,7 @@ import com.aigp.demo.web.user.dto.UserAssistantTaskListResponse;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -28,6 +29,7 @@ public class UserAssistantTaskService {
 	private final AppUserService appUserService;
 	private final MediaAssetService mediaAssetService;
 	private final ObjectMapper objectMapper;
+	private final AssistantTaskNearDueScheduleService assistantTaskNearDueScheduleService;
 
 	/**
 	 * 查询当前用户的助手任务清单；{@code status} 为空时返回全部状态。
@@ -49,6 +51,24 @@ public class UserAssistantTaskService {
 						t, imageUrlsByTask.getOrDefault(t.getId(), List.of())))
 				.toList();
 		return new UserAssistantTaskListResponse(items.size(), items);
+	}
+
+	/**
+	 * 查询用户在指定自然日到期的助手待办（{@code due_date} 或 {@code due_at} 落在该日），含全部状态。
+	 */
+	@Transactional(readOnly = true)
+	public List<UserAssistantTaskItemResponse> listForUserOnDate(Long userId, LocalDate date) {
+		appUserService.requireActive(userId);
+		LocalDateTime dayStart = date.atStartOfDay();
+		LocalDateTime dayEnd = date.plusDays(1).atStartOfDay();
+		List<UserAssistantTask> list =
+				userAssistantTaskRepository.findByUser_IdAndDueOnDate(userId, date, dayStart, dayEnd);
+		List<Long> taskIds = list.stream().map(UserAssistantTask::getId).toList();
+		Map<Long, List<String>> imageUrlsByTask = mediaAssetService.findTaskImageUrls(taskIds);
+		return list.stream()
+				.map(t -> UserAssistantTaskItemResponse.fromEntity(
+						t, imageUrlsByTask.getOrDefault(t.getId(), List.of())))
+				.toList();
 	}
 
 	/** 供对话 system 注入：助手任务简要列表（最多 30 条）；{@code statusFilter} 为空表示全部状态 */
@@ -131,13 +151,16 @@ public class UserAssistantTaskService {
 		if (StringUtils.hasText(description)) {
 			task.setDescription(description.trim());
 		}
-		AssistantTaskDueParser.applyDue(task, dueDate, dueAt, true, StringUtils.hasText(dueAt));
+		AssistantTaskDueParser.applyDue(
+				task, dueDate, dueAt, StringUtils.hasText(dueDate), StringUtils.hasText(dueAt));
+		AssistantTaskDueParser.normalizeDue(task);
 		task.setStatus(UserAssistantTaskStatus.OPEN);
 		userAssistantTaskRepository.save(task);
 		if (imageAssetIds != null && !imageAssetIds.isEmpty()) {
 			mediaAssetService.requireOwned(userId, imageAssetIds);
 			mediaAssetService.replaceTaskImages(task.getId(), imageAssetIds);
 		}
+		assistantTaskNearDueScheduleService.registerAfterCommit(task.getId());
 		return toJson(Map.of("ok", true, "task", toMap(task)));
 	}
 
@@ -169,6 +192,7 @@ public class UserAssistantTaskService {
 		}
 		if (dueDatePresent || dueAtPresent) {
 			AssistantTaskDueParser.applyDue(task, dueDate, dueAt, dueDatePresent, dueAtPresent);
+			AssistantTaskDueParser.normalizeDue(task);
 			task.setReminderSentAt(null);
 		}
 		userAssistantTaskRepository.save(task);
@@ -180,6 +204,11 @@ public class UserAssistantTaskService {
 				mediaAssetService.replaceTaskImages(task.getId(), List.of());
 			}
 		}
+		if (task.getStatus() == UserAssistantTaskStatus.CANCELLED || task.getStatus() == UserAssistantTaskStatus.DONE) {
+			assistantTaskNearDueScheduleService.cancel(task.getId());
+		} else if (dueDatePresent || dueAtPresent) {
+			assistantTaskNearDueScheduleService.registerAfterCommit(task.getId());
+		}
 		return toJson(Map.of("ok", true, "task", toMap(task)));
 	}
 
@@ -188,7 +217,32 @@ public class UserAssistantTaskService {
 		UserAssistantTask task = requireOwned(userId, taskId);
 		task.setStatus(UserAssistantTaskStatus.CANCELLED);
 		userAssistantTaskRepository.save(task);
+		assistantTaskNearDueScheduleService.cancel(task.getId());
 		return toJson(Map.of("ok", true, "task", toMap(task)));
+	}
+
+	/**
+	 * 成长计划任务标记完成后，同步将同日标题为「[学习计划] {title}」的助手待办置为 DONE（若存在）。
+	 */
+	@Transactional
+	public void markDoneForLinkedGrowthPlanTask(Long userId, String growthTaskTitle, LocalDate scheduledDate) {
+		if (!StringUtils.hasText(growthTaskTitle) || scheduledDate == null) {
+			return;
+		}
+		String linkedTitle = "[学习计划] " + growthTaskTitle.trim();
+		List<UserAssistantTask> openOnDate = userAssistantTaskRepository.findByUser_IdAndDueOnDate(
+				userId, scheduledDate, scheduledDate.atStartOfDay(), scheduledDate.plusDays(1).atStartOfDay());
+		for (UserAssistantTask task : openOnDate) {
+			if (task.getStatus() != UserAssistantTaskStatus.OPEN) {
+				continue;
+			}
+			if (linkedTitle.equals(task.getTitle())) {
+				task.setStatus(UserAssistantTaskStatus.DONE);
+				userAssistantTaskRepository.save(task);
+				assistantTaskNearDueScheduleService.cancel(task.getId());
+				return;
+			}
+		}
 	}
 
 	private UserAssistantTask requireOwned(Long userId, Long taskId) {

@@ -31,7 +31,8 @@ spring:
       hibernate:
         format_sql: true
         jdbc:
-          time_zone: UTC
+          # 与 Jackson、JDBC serverTimezone、定时任务 zone 一致；MySQL DATETIME 落库即北京时间（Asia/Shanghai）
+          time_zone: Asia/Shanghai
 
   flyway:
     enabled: false
@@ -122,10 +123,12 @@ app:
     enabled: ${APP_TASK_REMINDER_ENABLED:true}
     in-app-enabled: ${APP_TASK_REMINDER_IN_APP:true}
     push-enabled: ${APP_TASK_REMINDER_PUSH:true}
-    cron: ${APP_TASK_REMINDER_CRON:0 * * * * ?}
+    cron: ${APP_TASK_REMINDER_CRON:0/30 * * * * ?}
     zone: ${APP_TASK_REMINDER_ZONE:Asia/Shanghai}
     # 任务只有 due_date、没有 due_at 时，在截止日当天该时刻提醒（用户本地）
     default-due-date-reminder-time: ${APP_TASK_REMINDER_DEFAULT_TIME:08:00}
+    debug-log-enabled: ${APP_TASK_REMINDER_DEBUG_LOG:true}
+    debug-log-file: ${APP_TASK_REMINDER_DEBUG_LOG_FILE:logs/task-reminder.txt}
   # 成长计划 tasks：开始执行后按 estimated_minutes 自动完成；计划日次日标未完成（助手每日提醒仍走 task-reminder）
   growth-task:
     execution-enabled: ${APP_GROWTH_TASK_EXECUTION_ENABLED:true}
