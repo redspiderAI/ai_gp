@@ -312,6 +312,20 @@ components:
         assistantMessageId:
           type: integer
           format: int64
+        roundAction:
+          type: string
+          enum:
+            - CHAT_ONLY
+            - REMINDER_QUERIED
+            - REMINDER_CREATED
+            - REMINDER_UPDATED
+            - REMINDER_DELETED
+            - REMINDER_COMPLETED
+          description: |
+            本轮对话动作摘要（助手提醒 user_assistant_tasks）：
+            CHAT_ONLY=未调用助手任务工具；REMINDER_QUERIED=list_tasks 或 get_task；
+            REMINDER_CREATED=create_task；REMINDER_UPDATED=update_task（非完成）；
+            REMINDER_DELETED=delete_task；REMINDER_COMPLETED=update_task 且 status=DONE。
         planProposal:
           nullable: true
           allOf:
@@ -330,6 +344,21 @@ components:
         content:
           type: string
           nullable: true
+        imageUrls:
+          type: array
+          items:
+            type: string
+        roundAction:
+          type: string
+          nullable: true
+          enum:
+            - CHAT_ONLY
+            - REMINDER_QUERIED
+            - REMINDER_CREATED
+            - REMINDER_UPDATED
+            - REMINDER_DELETED
+            - REMINDER_COMPLETED
+          description: 仅 ASSISTANT 消息可能有；与 POST /ai/chat 的 roundAction 一致
         createdAt:
           type: string
           format: date-time

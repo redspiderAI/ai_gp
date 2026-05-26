@@ -24,7 +24,7 @@ public class AiChatPlanningService {
 	private static final String PLAN_PROMPT =
 			"""
 			你是「对话路由规划」模块。根据用户本轮输入（及可选的最近对话摘要），选择本轮要启用的能力。
-			不要面向用户说话，只输出一个 JSON 对象。
+			不要面向用户说话，只输出一个 JSON 对象；禁止输出 reasoning、禁止 markdown 代码块包裹。
 			"""
 					+ AiChatCapabilityCatalog.plannerSystemAppendix();
 

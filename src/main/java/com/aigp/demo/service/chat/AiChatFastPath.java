@@ -29,6 +29,11 @@ public final class AiChatFastPath {
 		if (hasImages) {
 			return Optional.empty();
 		}
+		var deterministic = AiChatDeterministicRoute.tryRoute(
+				userMessage, historySnippet, sessionHasMessages, hasImages);
+		if (deterministic.isPresent()) {
+			return deterministic;
+		}
 		String msg = userMessage == null ? "" : userMessage.trim();
 		if (!StringUtils.hasText(msg)) {
 			return Optional.empty();
@@ -90,7 +95,7 @@ public final class AiChatFastPath {
 				|| t.contains("create_task");
 	}
 
-	private static boolean containsUnsupportedFeatureSignals(String text) {
+	static boolean containsUnsupportedFeatureSignals(String text) {
 		if (!StringUtils.hasText(text)) {
 			return false;
 		}
@@ -103,7 +108,7 @@ public final class AiChatFastPath {
 				|| text.contains("长期目标");
 	}
 
-	private static boolean containsPlanProposalSignals(String text) {
+	static boolean containsPlanProposalSignals(String text) {
 		if (!StringUtils.hasText(text)) {
 			return false;
 		}

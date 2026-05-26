@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS ai_chat_messages (
     content     TEXT            DEFAULT NULL COMMENT '文本内容',
     tool_name   VARCHAR(64)     DEFAULT NULL COMMENT 'TOOL 角色时的工具名',
     tool_call_id VARCHAR(64)    DEFAULT NULL COMMENT 'TOOL 角色关联的 call id',
+    round_action VARCHAR(32)     DEFAULT NULL COMMENT 'ASSISTANT 消息本轮动作（与 POST /ai/chat roundAction 一致）',
     created_at  DATETIME        DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     KEY idx_session_created (session_id, created_at),

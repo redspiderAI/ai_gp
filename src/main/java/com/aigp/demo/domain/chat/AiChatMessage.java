@@ -46,6 +46,10 @@ public class AiChatMessage {
 	@Column(name = "tool_call_id", length = 64)
 	private String toolCallId;
 
+	/** 助手消息本轮动作摘要（与 POST /ai/chat 的 roundAction 一致）；USER 消息为空 */
+	@Column(name = "round_action", length = 32)
+	private String roundAction;
+
 	@CreationTimestamp
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private LocalDateTime createdAt;

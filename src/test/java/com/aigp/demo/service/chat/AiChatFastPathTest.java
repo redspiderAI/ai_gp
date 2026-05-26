@@ -16,8 +16,8 @@ class AiChatFastPathTest {
 	}
 
 	@Test
-	void fullPlanningForTaskKeyword() {
-		assertFalse(
+	void deterministicRouteForTaskListQuery() {
+		assertTrue(
 				AiChatFastPath.tryPlan("查我未来几天的待办", null, false, false).isPresent());
 	}
 

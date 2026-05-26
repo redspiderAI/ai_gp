@@ -11,6 +11,10 @@ public record AiChatMessageItemResponse(
 		@Schema(description = "角色：USER / ASSISTANT") String role,
 		@Schema(description = "文本内容") String content,
 		@Schema(description = "附图 URL 列表（仅 USER 可能有）") List<String> imageUrls,
+		@Schema(
+						description =
+								"仅 ASSISTANT 可能有：与 POST /ai/chat 的 roundAction 相同枚举；历史/定时消息为 null")
+				String roundAction,
 		@Schema(description = "创建时间") LocalDateTime createdAt) {
 
 	public static AiChatMessageItemResponse fromEntity(AiChatMessage m, List<String> imageUrls) {
@@ -19,6 +23,7 @@ public record AiChatMessageItemResponse(
 				m.getRole().name(),
 				m.getContent(),
 				imageUrls == null ? List.of() : imageUrls,
+				m.getRoundAction(),
 				m.getCreatedAt());
 	}
 }

@@ -21,11 +21,13 @@ import com.aigp.demo.web.ai.dto.AiChatSessionItemResponse;
 import com.aigp.demo.web.ai.dto.AiChatSessionPageResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.aigp.demo.domain.enums.AiChatRoundAction;
 import com.aigp.demo.service.chat.AiChatCapabilityCatalog;
 import com.aigp.demo.service.chat.AiChatCapabilityId;
 import com.aigp.demo.service.chat.AiChatIntentSignals;
 import com.aigp.demo.service.chat.AiChatRoutePlan;
 import com.aigp.demo.service.chat.AiChatRouteResolver;
+import com.aigp.demo.service.chat.AiChatRoundActionTracker;
 import com.aigp.demo.web.ai.dto.AiChatResponse;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -218,6 +220,7 @@ public class AiChatService {
 
 		String intentHint = null;
 		if (appProperties.getChat().isMultiPhaseEnabled()
+				&& !route.skipIntentAnalysis()
 				&& (route.hasCapability(AiChatCapabilityId.ASSISTANT_TASKS)
 						|| route.hasCapability(AiChatCapabilityId.PLAN_PROPOSAL)
 						|| route.hasCapability(AiChatCapabilityId.GROWTH_PLAN_TASKS))) {
@@ -226,7 +229,11 @@ public class AiChatService {
 			route = alignRouteWithIntentHint(route, intentHint);
 			pipelineDebugLog.step("route-after-intent", "capabilities=%s", route.capabilities());
 		} else if (appProperties.getChat().isMultiPhaseEnabled()) {
-			pipelineDebugLog.step("intent", "跳过：本轮未启用 assistant_tasks / plan_proposal");
+			if (route.skipIntentAnalysis()) {
+				pipelineDebugLog.step("intent", "跳过：快速/确定性路由");
+			} else {
+				pipelineDebugLog.step("intent", "跳过：本轮未启用 assistant_tasks / plan_proposal");
+			}
 		}
 
 		AiChatDataPlan plan = route.toDataPlan();
@@ -269,10 +276,10 @@ public class AiChatService {
 		ExecutionResult execution = runExecutionLoop(userId, executionProvider, llmMessages, tools);
 		String assistantText = execution.text();
 		AiChatPlanProposalHint planProposal = execution.planProposal();
-		AiChatMessage savedUser = persistMessage(session, ChatMessageRole.USER, userMessage, null, null);
+		AiChatMessage savedUser = persistMessage(session, ChatMessageRole.USER, userMessage, null, null, null);
 		mediaAssetService.linkAssetsToMessage(savedUser.getId(), imageAssetIds);
 		AiChatMessage savedAssistant =
-				persistMessage(session, ChatMessageRole.ASSISTANT, assistantText, null, null);
+				persistMessage(session, ChatMessageRole.ASSISTANT, assistantText, null, null, execution.roundAction());
 		aiChatSessionRepository.save(session);
 
 		inAppNotificationService.pushChatReply(
@@ -286,6 +293,7 @@ public class AiChatService {
 				executionModel,
 				savedUser.getId(),
 				savedAssistant.getId(),
+				execution.roundAction(),
 				AiChatCapabilityCatalog.toIdStrings(List.copyOf(route.capabilities())),
 				AiChatCapabilityCatalog.toIdStrings(route.unsupported()),
 				userImageUrls,
@@ -294,6 +302,8 @@ public class AiChatService {
 				true,
 				"sessionId="
 						+ session.getId()
+						+ " roundAction="
+						+ execution.roundAction()
 						+ " reply="
 						+ truncate(assistantText, 500)
 						+ (planProposal != null ? " proposalId=" + planProposal.proposalId() : ""));
@@ -369,7 +379,8 @@ public class AiChatService {
 	/**
 	 * 执行阶段：可含工具多轮；中间 assistant/tool 消息仅存在于内存，不落库。
 	 */
-	private record ExecutionResult(String text, AiChatPlanProposalHint planProposal) {}
+	private record ExecutionResult(
+			String text, AiChatPlanProposalHint planProposal, AiChatRoundAction roundAction) {}
 
 	private static List<Map<String, Object>> buildExecutionTools(AiChatDataPlan plan) {
 		List<Map<String, Object>> tools = new ArrayList<>();
@@ -393,9 +404,11 @@ public class AiChatService {
 		if (tools == null || tools.isEmpty()) {
 			ChatCompletionResult result =
 					openAiCompatibleChatClient.chat(providerConfig, messages, null, "execute");
-			return new ExecutionResult(finalizeAssistantText(result.content()), null);
+			return new ExecutionResult(
+					finalizeAssistantText(result.content()), null, AiChatRoundAction.CHAT_ONLY);
 		}
 		AiChatPlanProposalHint planProposal = null;
+		AiChatRoundActionTracker roundActionTracker = new AiChatRoundActionTracker(objectMapper);
 		int maxRounds = Math.max(1, appProperties.getChat().getMaxToolRounds());
 		for (int round = 0; round < maxRounds; round++) {
 			String phase = "execute-r" + (round + 1);
@@ -403,7 +416,10 @@ public class AiChatService {
 			ChatCompletionResult result = openAiCompatibleChatClient.chat(providerConfig, messages, tools, phase);
 			if (!result.hasToolCalls()) {
 				pipelineDebugLog.step(phase, "无 tool_calls，结束执行环");
-				return new ExecutionResult(finalizeAssistantText(result.content()), planProposal);
+				return new ExecutionResult(
+						finalizeAssistantText(result.content()),
+						planProposal,
+						roundActionTracker.get());
 			}
 
 			Map<String, Object> assistantMsg = new LinkedHashMap<>();
@@ -429,6 +445,7 @@ public class AiChatService {
 			messages.add(assistantMsg);
 
 			for (ChatCompletionResult.ToolCallPayload tc : result.toolCalls()) {
+				roundActionTracker.record(tc.name(), tc.argumentsJson());
 				String toolResult =
 						aiChatToolExecutor.execute(userId, tc.name(), tc.argumentsJson(), phase, round + 1);
 				if ("propose_growth_plan".equals(tc.name())) {
@@ -504,10 +521,10 @@ public class AiChatService {
 			AiChatRoutePlan route,
 			List<Long> imageAssetIds,
 			List<String> userImageUrls) {
-		AiChatMessage savedUser = persistMessage(session, ChatMessageRole.USER, userMessage, null, null);
+		AiChatMessage savedUser = persistMessage(session, ChatMessageRole.USER, userMessage, null, null, null);
 		mediaAssetService.linkAssetsToMessage(savedUser.getId(), imageAssetIds);
 		AiChatMessage savedAssistant =
-				persistMessage(session, ChatMessageRole.ASSISTANT, assistantText, null, null);
+				persistMessage(session, ChatMessageRole.ASSISTANT, assistantText, null, null, AiChatRoundAction.CHAT_ONLY);
 		aiChatSessionRepository.save(session);
 		inAppNotificationService.pushChatReply(
 				user.getId(), session.getId(), savedAssistant.getId(), assistantText);
@@ -520,6 +537,7 @@ public class AiChatService {
 				model,
 				savedUser.getId(),
 				savedAssistant.getId(),
+				AiChatRoundAction.CHAT_ONLY,
 				AiChatCapabilityCatalog.toIdStrings(List.copyOf(route.capabilities())),
 				AiChatCapabilityCatalog.toIdStrings(route.unsupported()),
 				userImageUrls,
@@ -647,13 +665,21 @@ public class AiChatService {
 	}
 
 	private AiChatMessage persistMessage(
-			AiChatSession session, ChatMessageRole role, String content, String toolName, String toolCallId) {
+			AiChatSession session,
+			ChatMessageRole role,
+			String content,
+			String toolName,
+			String toolCallId,
+			AiChatRoundAction roundAction) {
 		AiChatMessage msg = new AiChatMessage();
 		msg.setSession(session);
 		msg.setRole(role);
 		msg.setContent(content);
 		msg.setToolName(toolName);
 		msg.setToolCallId(toolCallId);
+		if (role == ChatMessageRole.ASSISTANT && roundAction != null) {
+			msg.setRoundAction(roundAction.name());
+		}
 		return aiChatMessageRepository.save(msg);
 	}
 

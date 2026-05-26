@@ -128,7 +128,7 @@ public class UserAssistantTaskService {
 		List<UserAssistantTask> list = applyDateFilter(loadTasks(userId, statusFilter), dateFilter);
 		List<Map<String, Object>> rows = new ArrayList<>();
 		for (UserAssistantTask t : list) {
-			rows.add(toMap(t));
+			rows.add(toCompactMap(t));
 		}
 		return toJson(Map.of("tasks", rows, "count", rows.size()));
 	}
@@ -307,6 +307,17 @@ public class UserAssistantTaskService {
 
 	private static LocalDate dueDateOf(UserAssistantTask t) {
 		return t.getDueAt() != null ? t.getDueAt().toLocalDate() : null;
+	}
+
+	/** 供 AI 工具 list_tasks 使用：省略长 description，降低 execute 第二轮 prompt 体积。 */
+	private Map<String, Object> toCompactMap(UserAssistantTask t) {
+		Map<String, Object> m = new LinkedHashMap<>();
+		m.put("id", t.getId());
+		m.put("title", t.getTitle());
+		m.put("status", t.getStatus().name());
+		m.put("dueDate", t.getDueDate() == null ? null : t.getDueDate().toString());
+		m.put("dueAt", AssistantTaskDueParser.formatDueAt(t.getDueAt()));
+		return m;
 	}
 
 	private Map<String, Object> toMap(UserAssistantTask t) {

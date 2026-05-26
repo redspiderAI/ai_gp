@@ -237,3 +237,14 @@ SET phone.credential = email.credential
 WHERE phone.identity_type = 'phone'
   AND phone.credential IS NULL
   AND email.credential IS NOT NULL;
+
+-- ai_chat_messages.round_action：历史消息拉取时可展示与 chat 接口一致的 roundAction
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @db AND TABLE_NAME = 'ai_chat_messages' AND COLUMN_NAME = 'round_action') = 0,
+    'ALTER TABLE ai_chat_messages ADD COLUMN round_action VARCHAR(32) DEFAULT NULL COMMENT ''ASSISTANT 消息本轮动作（REMINDER_CREATED 等）'' AFTER tool_call_id',
+    'SELECT ''skip ai_chat_messages.round_action'' AS n'
+);
+PREPARE s FROM @sql;
+EXECUTE s;
+DEALLOCATE PREPARE s;

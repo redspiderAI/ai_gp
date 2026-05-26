@@ -53,6 +53,24 @@
 | model | string | 实际调用的模型名 |
 | userMessageId | number | 本轮用户消息在库中的 ID |
 | assistantMessageId | number | 本轮助手消息在库中的 ID |
+| roundAction | string | 本轮动作摘要（见下表） |
+| capabilities | string[] | 本轮启用的能力 id |
+| unsupportedCapabilities | string[] | 用户提到但未上线的能力 id |
+| userImageUrls | string[] | 本轮用户附图 URL |
+| planProposal | object \| null | 成长计划草案摘要；普通提醒为 null |
+
+**roundAction 取值**（助手提醒 `user_assistant_tasks`，便于前端展示本回合做了什么）：
+
+| 值 | 含义 |
+|----|------|
+| `CHAT_ONLY` | 单纯对话：未调用助手任务工具（`list_tasks` / `get_task` / create / update / delete） |
+| `REMINDER_QUERIED` | 查询提醒/待办（`list_tasks` 或 `get_task`） |
+| `REMINDER_CREATED` | 新建提醒/待办（`create_task`） |
+| `REMINDER_UPDATED` | 修改提醒（`update_task`，且非标记完成） |
+| `REMINDER_DELETED` | 删除/取消提醒（`delete_task`） |
+| `REMINDER_COMPLETED` | 完成提醒（`update_task` 且 `status=DONE`） |
+
+同一轮若多次调用工具，按优先级取一条：**完成 > 删除 > 新建 > 修改 > 查询 > 单纯对话**。
 
 - **示例请求**：
 
@@ -73,7 +91,12 @@
   "provider": "mimo",
   "model": "mimo-v2.5-pro",
   "userMessageId": 101,
-  "assistantMessageId": 102
+  "assistantMessageId": 102,
+  "roundAction": "REMINDER_CREATED",
+  "capabilities": ["chat", "assistant_tasks"],
+  "unsupportedCapabilities": [],
+  "userImageUrls": [],
+  "planProposal": null
 }
 ```
 
@@ -174,7 +197,12 @@
 | role | string | `USER` 或 `ASSISTANT` |
 | content | string \| null | 文本内容 |
 | imageUrls | string[] | 附图 URL（仅 USER 可能有） |
+| roundAction | string \| null | 仅 **ASSISTANT** 可能有，枚举与 **2.1** `POST /ai/chat` 响应中 `roundAction` 相同；`USER` 与历史未落库消息为 `null` |
 | createdAt | string | ISO 日期时间 |
+
+**roundAction 取值**：`CHAT_ONLY`、`REMINDER_QUERIED`、`REMINDER_CREATED`、`REMINDER_UPDATED`、`REMINDER_DELETED`、`REMINDER_COMPLETED`（见 2.1 节表）。
+
+> **升级**：已有库需执行 `scripts/mysql-existing-database-changes.sql` 中 `ai_chat_messages.round_action` 段落；新库见 `scripts/mysql-ai-chat.sql`。
 
 - **404**：会话不存在或不属于当前用户。
 

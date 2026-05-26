@@ -59,6 +59,12 @@ flowchart TD
    - **计划草案**：`propose_growth_plan`（制定学习计划时，**须先出草案**，禁止批量 `create_task` 代替整份计划）。
    工具结果再喂回模型，最后输出面向用户的一段话；若生成了草案，HTTP 响应附带 `planProposal`。
 7. **用户确认计划**（App 调用，非对话内）：`POST /api/v1/growth/plan-proposals/{id}/confirm` → 入库并开始每日 `dueAt` 提醒。
+
+**对话响应 `roundAction`**：`POST /api/v1/ai/chat` 返回 `roundAction` 字段，便于前端区分本回合是单纯对话还是新建/修改/删除/完成助手提醒（见 `md文档/HTTP接口-AI对话与通知.md` 2.1 节）。
+
+**延迟优化（功能不变）**：常见「查未来几天任务 / 记提醒 / 标记完成」等走 **确定性路由**，跳过 plan、intent 两次 LLM；仍保留复杂话术与制定计划草案的完整多阶段流程。`list_tasks` 工具返回精简字段（无长 description），降低执行阶段第二轮 token。
+
+**历史消息 `roundAction`**：`POST /ai/chat` 落库时写入 `ai_chat_messages.round_action`；`GET .../messages` 在 **ASSISTANT** 消息上返回同名字段，便于多端刷新会话列表后渲染动作标签。
 8. **落库规则**：数据库里**只存两条**——本轮用户消息、本轮助手最终回复。中间的规划、意图分析、工具调用过程**不写入** `ai_chat_messages`（计划草案存 `growth_plan_proposals`）。
 9. **实时推送**：若客户端已连接 WebSocket，会收到 `type=CHAT_REPLY` 的 JSON（含会话 id、消息 id、正文预览等）。
 

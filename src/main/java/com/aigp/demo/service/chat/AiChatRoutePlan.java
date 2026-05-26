@@ -58,6 +58,14 @@ public record AiChatRoutePlan(
 				reason == null ? "" : reason);
 	}
 
+	/** 由 {@link AiChatFastPath} / {@link AiChatDeterministicRoute} 产生时跳过 intent LLM，降低延迟。 */
+	public boolean skipIntentAnalysis() {
+		if (reason == null || reason.isBlank()) {
+			return false;
+		}
+		return reason.startsWith("快速路由：") || reason.startsWith("确定性路由：");
+	}
+
 	public static AiChatRoutePlan defaults() {
 		Set<AiChatCapabilityId> caps = new LinkedHashSet<>();
 		caps.add(AiChatCapabilityId.CHAT);
