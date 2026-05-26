@@ -1,5 +1,6 @@
 package com.aigp.demo.service;
 
+import com.aigp.demo.domain.enums.UserTaskSource;
 import com.aigp.demo.service.growth.GrowthPlanProposalService;
 import com.aigp.demo.support.llm.AiChatPipelineDebugLog;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -14,8 +15,9 @@ import org.springframework.stereotype.Component;
 public class AiChatToolExecutor {
 
 	private final UserAssistantTaskService userAssistantTaskService;
-	private final TaskService taskService;
 	private final GrowthPlanProposalService growthPlanProposalService;
+	private final UserTaskCompletionService userTaskCompletionService;
+	private final TaskService taskService;
 	private final ObjectMapper objectMapper;
 	private final AiChatPipelineDebugLog pipelineDebugLog;
 
@@ -56,15 +58,8 @@ public class AiChatToolExecutor {
 				case "delete_task" -> userAssistantTaskService.cancelTaskJson(userId, args.path("taskId").asLong());
 				case "list_growth_tasks" -> taskService.listForUserOnDateJson(
 						userId, textOrNull(args.path("date")), textOrNull(args.path("status")));
-				case "complete_growth_task" -> taskService.completeTaskJson(
-						userId,
-						args.path("taskId").asLong(),
-						args.has("actualMinutes") && !args.path("actualMinutes").isNull()
-								? args.path("actualMinutes").asInt()
-								: null,
-						args.has("qualityScore") && !args.path("qualityScore").isNull()
-								? args.path("qualityScore").asInt()
-								: null);
+				case "complete_growth_task" -> userTaskCompletionService.completeToJson(
+						userId, UserTaskSource.GROWTH, args.path("taskId").asLong());
 				case "propose_growth_plan" -> growthPlanProposalService.proposeFromToolJson(userId, args);
 				default -> "{\"error\":\"未知工具: " + toolName + "\"}";
 			};

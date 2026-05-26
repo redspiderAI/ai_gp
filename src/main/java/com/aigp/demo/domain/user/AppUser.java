@@ -34,6 +34,10 @@ public class AppUser {
 	@Column(length = 50)
 	private String nickname;
 
+	/** 已绑定手机号（11 位大陆号码，与 {@code user_identities.phone} 同步，可用于登录） */
+	@Column(length = 11, unique = true)
+	private String phone;
+
 	@Column(name = "avatar_url", length = 500)
 	private String avatarUrl;
 
@@ -52,9 +56,13 @@ public class AppUser {
 	@Column(nullable = false, length = 10)
 	private String language = "zh-CN";
 
-	/** 身份 / 角色简述（首次登录了解用户用） */
-	@Column(name = "profile_identity", length = 200)
-	private String profileIdentity;
+	/** 年龄（周岁，首次登录画像） */
+	@Column(name = "profile_age")
+	private Byte profileAge;
+
+	/** 职业（首次登录画像） */
+	@Column(name = "profile_occupation", length = 200)
+	private String profileOccupation;
 
 	/** 爱好（自由文本，可逗号或换行分隔） */
 	@Column(name = "profile_hobbies", columnDefinition = "TEXT")

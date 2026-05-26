@@ -76,7 +76,7 @@
 | **A2 提交注册** | `POST /api/v1/auth/register` | `{ "email": "<与A1相同>", "password": "<至少8位>", "nickname": "<必填，最长50>", "verificationCode": "<6位邮箱验证码>" }` | 与登录相同结构的 **令牌包**（见下表「令牌包」） |
 
 - **A1 说明**：仅支持 **邮箱**；`email` 须为 **未注册**；同一邮箱 **60 秒内** 只能发一次码。配置 `spring.mail` 时验证码走 **邮件**（见 `md文档/QQ邮箱SMTP与验证码.md`），否则为进程内内存。生产环境一般 **没有** `debugCode`；本地可把 `app.auth.verification-debug-return-code` 设为 `true` 便于联调。
-- **A2 说明**：须与 A1 使用同一邮箱；**昵称必填**。手机号等请在登录后通过 **PATCH `/api/v1/users/me`** 绑定（见第 3 章）。成功后 **自动登录**，直接拿到令牌。
+- **A2 说明**：须与 A1 使用同一邮箱；**昵称必填**。**注册仅支持邮箱**；绑定手机号请在登录后通过 **PATCH `/api/v1/users/me`**（见第 3.2 节），绑定后可用 **手机号 + 同一登录密码** 登录。成功后 **自动登录**，直接拿到令牌。
 
 ---
 
@@ -86,7 +86,7 @@
 |------|------|----------------|----------------------|
 | **B1 登录** | `POST /api/v1/auth/login` | `{ "account": "<邮箱或11位手机号或16位uid>", "password": "<密码>" }` | **令牌包**（见下表） |
 
-- **`account` 规则**：含 `@` 按邮箱；长度为 16 且以 `U`/`u` 开头按对外 `uid`；否则按手机号与库中 `identifier` 完全一致匹配。
+- **`account` 规则**：含 `@` 按邮箱；长度为 16 且以 `U`/`u` 开头按对外 `uid`；否则按 **11 位大陆手机号** 查 `user_identities`（须已在资料中绑定且与邮箱共用密码）。
 
 ---
 
@@ -114,7 +114,7 @@
   **`account` 三种形态**（按以下顺序识别）：
   1. 含 `@` → 按 **邮箱** 查 `user_identities`（`identity_type=email`，identifier 会按小写匹配）。
   2. 长度为 **16** 且首字符为 **`U` 或 `u`** → 视为对外 **`users.uid`**（会先转成大写再查表），再取该用户下已设置密码的邮箱或手机身份做密码校验。
-  3. 其它 → 按 **手机号** 查 `user_identities`（`identity_type=phone`，identifier 与传入字符串一致）。
+  3. 其它 → 按 **11 位大陆手机号** 查 `user_identities`（`identity_type=phone`，须已绑定且已同步登录密码；与邮箱密码相同）。
 - **请求体**（JSON）：
 
 | 字段 | 类型 | 必填 | 说明 |
@@ -156,7 +156,7 @@
 
 - **方法 / 路径**：`POST /api/v1/auth/register`
 - **鉴权**：不需要
-- **说明**：校验 **邮箱** 验证码（一次性）后创建 `users`、绑定 **邮箱+密码** 身份、写入默认通知设置，并 **自动登录** 返回令牌对。邮箱与发码阶段须一致（小写存库）。**手机号请在登录后 PATCH 资料绑定。**
+- **说明**：校验 **邮箱** 验证码（一次性）后创建 `users`、绑定 **邮箱+密码** 身份、写入默认通知设置，并 **自动登录** 返回令牌对。邮箱与发码阶段须一致（小写存库）。**不支持手机号注册**；手机号请在登录后 PATCH 资料绑定（见 3.2）。
 - **请求体**（JSON）：
 
 | 字段 | 类型 | 必填 | 说明 |
@@ -269,7 +269,7 @@
 | 更新资料（JSON） | `PATCH /api/v1/users/me` | 可改昵称、外链头像等 |
 | **上传头像** | **`POST /api/v1/users/me/avatar`** | **multipart，自动写 `avatarUrl`** |
 | 读取头像（公开） | `GET /api/v1/public/avatars/{uid}` | **无需登录**，见 3.2.2 |
-| 首次画像 | `PATCH /api/v1/users/me/onboarding` | 身份、爱好等 |
+| 首次画像 | `PATCH /api/v1/users/me/onboarding` | 年龄、职业、爱好、昵称（未填时）、探索方向 |
 | 注销 | `DELETE /api/v1/users/me` | 软删除 |
 
 OpenAPI 片段：`docs/openapi/v1-users.yaml`（与 SpringDoc `/swagger-ui.html` 互补）。
@@ -291,7 +291,8 @@ OpenAPI 片段：`docs/openapi/v1-users.yaml`（与 SpringDoc `/swagger-ui.html`
 | createdAt | string | 注册时间（ISO 风格日期时间，见全局 Jackson 配置） |
 | updatedAt | string | 最近更新时间 |
 | phone | string \| null | 已绑定手机号（脱敏，如 `138****8000`）；未绑定为 `null` |
-| identitySummary | string \| null | 身份/角色简述 |
+| age | number \| null | 年龄（周岁） |
+| occupation | string \| null | 职业 |
 | hobbies | string \| null | 爱好 |
 | explorationInterests | string \| null | 希望探索的专业方向等 |
 | onboardingCompleted | boolean | 是否已完成首次画像填写 |
@@ -308,7 +309,7 @@ OpenAPI 片段：`docs/openapi/v1-users.yaml`（与 SpringDoc `/swagger-ui.html`
 | nickname | string | 最长 50 | 昵称 |
 | avatarUrl | string | 最长 500 | 头像 URL；推荐用 **3.2.1 上传头像** 自动写入，也可继续填外链 |
 | weeklyHours | number | 0–40 | 每周可投入小时数 |
-| phone | string | 11 位大陆号 `1[3-9]…` | 绑定到当前用户；**无短信验证、不写密码**，仅作资料展示与后续扩展；与库中其他用户冲突时 **409** |
+| phone | string | 11 位大陆号 `1[3-9]…` | 绑定到当前用户；**与邮箱登录密码共用**（绑定后可用手机号+密码登录）；暂 **无短信验证**；与他人冲突时 **409** |
 
 - **200**：同 3.1 响应结构。
 
@@ -355,7 +356,8 @@ OpenAPI 片段：`docs/openapi/v1-users.yaml`（与 SpringDoc `/swagger-ui.html`
   "createdAt": "2026-05-01 10:00:00",
   "updatedAt": "2026-05-17 14:30:00",
   "phone": null,
-  "identitySummary": null,
+  "age": null,
+  "occupation": null,
   "hobbies": null,
   "explorationInterests": null,
   "onboardingCompleted": false
@@ -422,21 +424,36 @@ const profile = await res.json();
 
 ---
 
-### 3.3 更新首次登录用户画像（身份、爱好、探索方向）
+### 3.3 更新首次登录用户画像（年龄、职业、爱好、昵称、探索方向）
 
 - **方法 / 路径**：`PATCH /api/v1/users/me/onboarding`
-- **说明**：用于注册后首次进入产品时的问卷/画像；**部分更新**：请求体里未出现的字段保持原值。传 **空字符串** `""` 可清空对应文本字段；`onboardingCompleted` 未传则不改。
+- **说明**：用于注册后首次进入产品时的问卷/画像；**部分更新**：请求体里未出现的字段保持原值。传 **空字符串** `""` 可清空对应文本字段（`age` 除外）；`onboardingCompleted` 未传则不改。
 - **请求体**（JSON）：
 
 | 字段 | 类型 | 约束 | 说明 |
 |------|------|------|------|
-| identitySummary | string | 最长 200 | 身份或角色简述，如学生、产品经理 |
+| age | number | 1–120 | 年龄（周岁） |
+| occupation | string | 最长 200 | 职业，如学生、产品经理、自由职业 |
 | hobbies | string | 最长 4000 | 爱好 |
+| nickname | string | 最长 50 | 昵称；**仅当账号尚未设置昵称时**才会写入，已有昵称时忽略 |
 | explorationInterests | string | 最长 4000 | 希望探索的专业方向、领域等 |
 | onboardingCompleted | boolean | — | 是否标记为已完成首次画像；`true` / `false` |
 
 - **200**：同 3.1 响应结构。
-- **400**：字段超长等校验错误。
+- **400**：字段超长、年龄超出范围等校验错误。
+
+**示例请求**：
+
+```json
+{
+  "age": 22,
+  "occupation": "大学生",
+  "hobbies": "阅读、跑步、摄影",
+  "nickname": "小明",
+  "explorationInterests": "人工智能、产品设计",
+  "onboardingCompleted": true
+}
+```
 
 ---
 

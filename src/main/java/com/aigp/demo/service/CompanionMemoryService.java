@@ -311,7 +311,10 @@ public class CompanionMemoryService {
 		StringBuilder userContent = new StringBuilder();
 		userContent.append("【用户画像】\n");
 		userContent.append("- 昵称：").append(nullToDash(user.getNickname())).append('\n');
-		userContent.append("- 身份：").append(nullToDash(user.getProfileIdentity())).append('\n');
+		if (user.getProfileAge() != null) {
+			userContent.append("- 年龄：").append(user.getProfileAge()).append('\n');
+		}
+		userContent.append("- 职业：").append(nullToDash(user.getProfileOccupation())).append('\n');
 		userContent.append("- 爱好：").append(nullToDash(user.getProfileHobbies())).append('\n');
 		userContent.append("- 探索方向：").append(nullToDash(user.getProfileExploration())).append('\n');
 		userContent.append("\n【旧长期记忆】\n");

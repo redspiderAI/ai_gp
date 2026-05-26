@@ -60,16 +60,15 @@ public class TaskService {
 				"count", rows.size()));
 	}
 
-	/** 供 AI 对话工具：标记成长计划任务已完成（等同 HTTP complete 接口规则）。 */
+	/** 供 AI 对话工具：标记成长计划任务已完成。 */
 	@Transactional
-	public String completeTaskJson(Long userId, Long taskId, Integer actualMinutes, Integer qualityScore) {
-		Task task = complete(userId, taskId, actualMinutes, qualityScore);
+	public String completeTaskJson(Long userId, Long taskId) {
+		Task task = complete(userId, taskId, null, null);
 		userAssistantTaskService.markDoneForLinkedGrowthPlanTask(
 				userId, task.getTitle(), task.getScheduledDate());
 		return toJson(Map.of("ok", true, "task", toChatMap(task)));
 	}
 
-	/** 供 AI system 注入：今日成长计划任务摘要。 */
 	@Transactional(readOnly = true)
 	public String buildGrowthTasksSummaryForChat(Long userId, LocalDate date) {
 		List<Task> tasks = listForUserOnDate(userId, date);
@@ -137,33 +136,7 @@ public class TaskService {
 	}
 
 	/**
-	 * 开始执行成长计划任务：仅在该任务的计划日（scheduledDate，用户时区自然日）且 PENDING 时可调用。
-	 * 计划日当天 0 点起即可开始，无需等到每日提醒时刻；不可早于或晚于该自然日。
-	 */
-	@Transactional
-	public Task startExecution(Long userId, Long taskId) {
-		Task task = requireOwned(userId, taskId);
-		if (task.getStatus() != TaskStatus.PENDING) {
-			throw new ConflictException("仅待执行状态可开始，当前: " + task.getStatus());
-		}
-		AppUser user = appUserService.requireActive(userId);
-		ZoneId zone = TaskReminderDueEvaluator.resolveZone(user.getTimezone());
-		if (!GrowthTaskScheduleRules.isOnPlanDay(task, zone)) {
-			LocalDate planDay = task.getScheduledDate();
-			LocalDate today = LocalDate.now(zone);
-			if (today.isBefore(planDay)) {
-				throw new ConflictException("未到计划日，须在 " + planDay + " 当天开始");
-			}
-			throw new ConflictException("计划日 " + planDay + " 已过，须在计划日当天开始");
-		}
-		LocalDateTime now = LocalDateTime.now(zone).truncatedTo(ChronoUnit.MINUTES);
-		task.setStartedAt(now);
-		task.setStatus(TaskStatus.IN_PROGRESS);
-		return taskRepository.save(task);
-	}
-
-	/**
-	 * 提前完成（或计划日当天直接完成）：仅 {@code PENDING} / {@code IN_PROGRESS}，且须在计划日当天。
+	 * 标记成长计划任务已完成：仅 {@code PENDING} / {@code IN_PROGRESS}，且须在计划日当天。
 	 */
 	@Transactional
 	public Task complete(Long userId, Long taskId, Integer actualMinutes, Integer qualityScore) {

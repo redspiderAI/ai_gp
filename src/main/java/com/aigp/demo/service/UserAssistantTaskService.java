@@ -3,6 +3,7 @@ package com.aigp.demo.service;
 import com.aigp.demo.domain.chat.UserAssistantTask;
 import com.aigp.demo.domain.enums.UserAssistantTaskStatus;
 import com.aigp.demo.domain.user.AppUser;
+import com.aigp.demo.exception.ConflictException;
 import com.aigp.demo.exception.NotFoundException;
 import com.aigp.demo.repository.UserAssistantTaskRepository;
 import com.aigp.demo.web.user.dto.UserAssistantTaskItemResponse;
@@ -188,7 +189,12 @@ public class UserAssistantTaskService {
 			task.setDescription(StringUtils.hasText(description) ? description.trim() : null);
 		}
 		if (status != null && StringUtils.hasText(status)) {
-			task.setStatus(UserAssistantTaskStatus.valueOf(status.trim().toUpperCase()));
+			UserAssistantTaskStatus next = parseStatus(status.trim().toUpperCase());
+			if (next == UserAssistantTaskStatus.DONE) {
+				task = markComplete(userId, taskId);
+			} else {
+				task.setStatus(next);
+			}
 		}
 		if (dueDatePresent || dueAtPresent) {
 			AssistantTaskDueParser.applyDue(task, dueDate, dueAt, dueDatePresent, dueAtPresent);
@@ -210,6 +216,18 @@ public class UserAssistantTaskService {
 			assistantTaskNearDueScheduleService.registerAfterCommit(task.getId());
 		}
 		return toJson(Map.of("ok", true, "task", toMap(task)));
+	}
+
+	@Transactional
+	public UserAssistantTask markComplete(Long userId, Long taskId) {
+		UserAssistantTask task = requireOwned(userId, taskId);
+		if (task.getStatus() != UserAssistantTaskStatus.OPEN) {
+			throw new ConflictException("仅未完成（OPEN）可标记完成，当前: " + task.getStatus());
+		}
+		task.setStatus(UserAssistantTaskStatus.DONE);
+		userAssistantTaskRepository.save(task);
+		assistantTaskNearDueScheduleService.cancel(task.getId());
+		return task;
 	}
 
 	@Transactional

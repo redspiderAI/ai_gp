@@ -1,9 +1,9 @@
 openapi: 3.0.3
 info:
-  title: AI 成长计划 API — 成长计划任务执行
+  title: AI 成长计划 API — 成长计划任务查询
   description: |
-    成长计划 `tasks` 表：开始执行、提前完成、到时自动完成、跨日未完成。
-    每日提醒仍由助手待办（user_assistant_tasks）+ task-reminder 推送，与本组接口独立。
+    按日查询 `tasks` 与 `user_assistant_tasks`。
+    **标记完成**请用 `POST /api/v1/users/me/tasks/complete`（见 docs/openapi/v1-users.yaml）或对话内说明「XX 完成了」。
   version: 1.0.0
 
 servers:
@@ -42,7 +42,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/GrowthTaskListResponse'
         '400':
-          description: date 缺失或格式非法（须 yyyy-MM-dd）
+          description: date 格式非法（须 yyyy-MM-dd）
         '401':
           $ref: '#/components/responses/Unauthorized'
 
@@ -53,7 +53,7 @@ paths:
       description: |
         同时返回：
         - `tasks`：`tasks` 表，`scheduledDate` 为今天的成长计划任务；
-        - `assistantTasks`：`user_assistant_tasks` 表，`due_date` 或 `due_at` 落在今天的助手待办（含 OPEN/DONE/CANCELLED）。
+        - `assistantTasks`：`user_assistant_tasks` 表，`due_date` 或 `due_at` 落在今天的助手待办。
       operationId: listGrowthTasksToday
       responses:
         '200':
@@ -64,77 +64,6 @@ paths:
                 $ref: '#/components/schemas/GrowthTaskListResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
-
-  /api/v1/users/me/growth-tasks/{taskId}/start:
-    post:
-      tags: [成长计划任务]
-      summary: 开始执行任务
-      description: |
-        仅 `PENDING` 且用户本地日历日等于该任务的 `scheduledDate`（计划日）可调用。
-        计划日当天 0 点起即可开始，无需等到每日提醒时刻；不可早于计划日、不可在计划日结束后开始。
-        成功后 `IN_PROGRESS`，`startedAt` 为当前时刻；`plannedEndAt = startedAt + estimatedMinutes`。
-        到点后由服务端每分钟扫描自动置 `COMPLETED`；计划日次日仍为 `PENDING` 的置 `INCOMPLETE`。
-      operationId: startGrowthTask
-      parameters:
-        - name: taskId
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-            minimum: 1
-      responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/GrowthTaskItemResponse'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          description: 状态或日期不允许开始
-
-  /api/v1/users/me/growth-tasks/{taskId}/complete:
-    post:
-      tags: [成长计划任务]
-      summary: 提前完成（标记已完成）
-      description: |
-        将 `PENDING` 或 `IN_PROGRESS` 任务标记为 `COMPLETED`，可在 `plannedEndAt` 之前调用（提前结束）。
-        用户本地日历日须等于 `scheduledDate`（计划日）；不可早于或晚于计划日。
-        请求体可选：`actualMinutes`、`qualityScore`（1～5）。
-      operationId: completeGrowthTask
-      parameters:
-        - name: taskId
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-            minimum: 1
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/GrowthTaskCompleteRequest'
-      responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/GrowthTaskItemResponse'
-        '400':
-          description: 参数非法（如 qualityScore 超出 1～5）
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          description: 状态或计划日不允许完成
 
 components:
   securitySchemes:
@@ -177,7 +106,6 @@ components:
           type: string
           format: date-time
           nullable: true
-          description: 开始执行后 = startedAt + estimatedMinutes
         completedAt:
           type: string
           format: date-time
@@ -201,7 +129,6 @@ components:
           description: 助手待办条数（截止日为查询日）
         assistantTasks:
           type: array
-          description: user_assistant_tasks 表
           items:
             $ref: '#/components/schemas/UserAssistantTaskItemResponse'
 
@@ -241,20 +168,6 @@ components:
         updatedAt:
           type: string
           format: date-time
-
-    GrowthTaskCompleteRequest:
-      type: object
-      properties:
-        actualMinutes:
-          type: integer
-          minimum: 1
-          maximum: 1440
-          description: 实际耗时（分钟），可选
-        qualityScore:
-          type: integer
-          minimum: 1
-          maximum: 5
-          description: 自评质量，可选
 
   responses:
     Unauthorized:

@@ -1,24 +1,26 @@
-# HTTP 接口 — 成长计划任务执行（tasks 表）
-
-与 **助手待办**（`user_assistant_tasks` + 每日提醒）分离：本组接口操作确认计划后写入的 **`tasks`** 表。
+# HTTP 接口 — 成长计划任务查询（tasks + user_assistant_tasks）
 
 鉴权：`Authorization: Bearer {accessToken}`
 
+任务数据仅来自两张表：**`tasks`**（成长计划）与 **`user_assistant_tasks`**（助手待办）。
+
+**标记完成**仅两种方式：
+
+1. **对话**：如「我的英语复习完了」→ AI 调用工具  
+2. **REST**：`POST /api/v1/users/me/tasks/complete`（见下文 §3）
+
 ---
 
-## 1. 状态说明
+## 1. 状态说明（tasks 表）
 
 | status | 含义 |
 |--------|------|
-| `PENDING` | 待执行（仅在该任务 `scheduledDate` 当天可开始） |
-| `IN_PROGRESS` | 进行中（已调开始接口） |
-| `COMPLETED` | 已完成（到 `plannedEndAt` 自动完成，或手动完成接口） |
-| `SKIPPED` | 用户跳过（预留，当前无 C 端跳过接口） |
-| `INCOMPLETE` | 未完成（计划日次日仍为 `PENDING`，或次日仍为 `IN_PROGRESS`） |
+| `PENDING` | 待完成 |
+| `IN_PROGRESS` | 历史遗留进行中（已无「开始」接口，可标记完成） |
+| `COMPLETED` | 已完成 |
+| `INCOMPLETE` | 计划日已过仍未完成（服务端自动） |
 
-**计划结束时刻**：`plannedEndAt = startedAt + estimatedMinutes`（至少 1 分钟）。
-
-**每日提醒**：仍由 `user_assistant_tasks`（`[学习计划] …`）在 `dailyReminderTime` 推送，不受本接口影响。
+助手待办：`OPEN` → 完成时 `DONE`；`CANCELLED` 不可完成。
 
 ---
 
@@ -30,110 +32,67 @@
 GET /api/v1/users/me/growth-tasks?date=2026-05-22
 ```
 
-| 参数 | 必填 | 格式 | 说明 |
-|------|------|------|------|
-| `date` | 否 | `yyyy-MM-dd` | 月、日须补零；**省略时按用户时区取今天**（与 `/today` 相同） |
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| `date` | 否 | `yyyy-MM-dd`；省略 = 用户时区今天 |
 
-非法格式返回 **400**（`BAD_REQUEST`），不再误报 500。
+响应：`tasks[]`（成长计划）+ `assistantTasks[]`（当日助手待办）。
 
-响应同时包含 `assistantTasks[]`（`user_assistant_tasks`，截止日为 `date`），规则同 §2.2。
-
-### 2.2 用户本地今天
+### 2.2 今天
 
 ```http
 GET /api/v1/users/me/growth-tasks/today
 ```
 
-响应字段：
-
-| 字段 | 来源表 | 说明 |
-|------|--------|------|
-| `count` / `tasks[]` | `tasks` | 成长计划任务，`scheduledDate` = 用户本地今天 |
-| `assistantCount` / `assistantTasks[]` | `user_assistant_tasks` | 助手待办，`due_date` 或 `due_at` 落在今天（全部状态） |
-
-`tasks[]` 含 `plannedEndAt`，便于前端展示倒计时。助手待办字段与 `GET /api/v1/users/me/tasks` 单项结构一致（含 `dueDate`、`dueAt`、`reminderSentAt` 等）。
-
----
-
-## 3. 开始执行
+### 2.3 助手待办全量列表
 
 ```http
-POST /api/v1/users/me/growth-tasks/{taskId}/start
+GET /api/v1/users/me/tasks?status=OPEN
 ```
 
-**条件**：
-
-- 须为当前用户任务；
-- `status` 必须为 `PENDING`；
-- 用户本地日历日须等于该任务的 **`scheduledDate`（计划日）**：
-  - **可以**：计划日当天任意时刻开始（如 08:00 的任务 06:00 即可点「开始」，不必等每日提醒）；
-  - **不可以**：早于 `scheduledDate` 的日期开始（不能提前到昨天做明天的任务）；
-  - **不可以**：计划日自然日结束后开始（次日及以后为 `INCOMPLETE` 或 409）。
-
-**成功 200**：`status=IN_PROGRESS`，`startedAt` 有值，`plannedEndAt` 可展示。
-
-**409**：非待执行、未到计划日、计划日已过等。
-
 ---
 
-## 4. 提前完成
+## 3. 标记已完成（统一接口）
 
 ```http
-POST /api/v1/users/me/growth-tasks/{taskId}/complete
+POST /api/v1/users/me/tasks/complete
 Content-Type: application/json
-```
 
-在 **`plannedEndAt` 之前**结束进行中任务，或在计划日**不点「开始」直接标记完成**。请求体可省略或传 `{}`。
-
-### 4.1 请求体（可选）
-
-| 字段 | 类型 | 必填 | 约束 | 说明 |
-|------|------|------|------|------|
-| `actualMinutes` | integer | 否 | 1～1440 | 实际耗时（分钟） |
-| `qualityScore` | integer | 否 | 1～5 | 自评质量 |
-
-示例：
-
-```json
 {
-  "actualMinutes": 25,
-  "qualityScore": 4
+  "source": "growth",
+  "taskId": 12
 }
 ```
 
-### 4.2 条件
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `source` | 是 | `assistant` 或 `growth` |
+| `taskId` | 是 | 须属于当前 JWT 用户 |
 
-- 须为当前用户任务（JWT，非 Body 传 `userId`）；
-- `status` 为 `PENDING` 或 `IN_PROGRESS`；
-- 用户本地日历日须等于 **`scheduledDate`（计划日）**（与「开始执行」相同，不可跨日补完成）。
+| source | 表 | 允许的前状态 | 完成后 |
+|--------|-----|-------------|--------|
+| `assistant` | `user_assistant_tasks` | `OPEN` | `DONE` |
+| `growth` | `tasks` | `PENDING`、`IN_PROGRESS` | `COMPLETED`（须在 `scheduledDate` 当天） |
 
-### 4.3 响应
+**200**：`CompleteUserTaskResponse`（含 `assistantTask` 或 `growthTask`）。
 
-**200**：`status=COMPLETED`，`completedAt` 为当前用户本地时刻；若曾开始则保留 `startedAt`、`plannedEndAt`。
+**409**：已完成、已取消、或状态不允许。
 
-**409**：已完成/已跳过/未完成、非计划日等。
+`source=growth` 成功时，会同步将同日 `[学习计划] {标题}` 助手待办标为 `DONE`（若存在）。
 
-**400**：`actualMinutes` / `qualityScore` 超出范围。
+---
+
+## 4. 已移除的接口
+
+以下接口**已删除**，请勿再调用：
+
+- ~~`POST /api/v1/users/me/growth-tasks/{taskId}/start`~~
+- ~~`POST /api/v1/users/me/growth-tasks/{taskId}/complete`~~
 
 ---
 
 ## 5. 服务端自动逻辑（无需前端调用）
 
-每分钟与助手提醒同窗扫描：
+每分钟扫描：`PENDING`/`IN_PROGRESS` 且计划日已过的 `tasks` → `INCOMPLETE`；历史 `IN_PROGRESS` 到 `plannedEndAt` 可自动 `COMPLETED`。
 
-1. `IN_PROGRESS` 且当前时间 ≥ `plannedEndAt` → `COMPLETED`
-2. `IN_PROGRESS` 且 `scheduledDate` 早于用户本地今天 → `INCOMPLETE`
-3. `PENDING` 且 `scheduledDate` 早于用户本地今天 → `INCOMPLETE`
-
-配置：`app.growth-task.execution-enabled`（默认 `true`）。
-
----
-
-## 6. 数据库迁移
-
-已有库执行 `scripts/mysql-existing-database-changes.sql` 末尾：
-
-- `tasks.started_at`
-- `tasks.status` 增加 `IN_PROGRESS`、`INCOMPLETE`
-
-OpenAPI：`docs/openapi/v1-growth-tasks.yaml`
+OpenAPI：`docs/openapi/v1-growth-tasks.yaml`（查询）、`docs/openapi/v1-users.yaml`（完成）

@@ -3,6 +3,9 @@ package com.aigp.demo.web.user;
 import com.aigp.demo.service.AppUserService;
 import com.aigp.demo.service.UserAssistantTaskService;
 import com.aigp.demo.service.UserAvatarService;
+import com.aigp.demo.service.UserTaskCompletionService;
+import com.aigp.demo.web.user.dto.CompleteUserTaskRequest;
+import com.aigp.demo.web.user.dto.CompleteUserTaskResponse;
 import com.aigp.demo.web.security.CurrentUser;
 import com.aigp.demo.web.security.JwtUserClaims;
 import com.aigp.demo.web.user.dto.PatchOnboardingRequest;
@@ -42,6 +45,7 @@ public class UserController {
 
 	private final AppUserService appUserService;
 	private final UserAssistantTaskService userAssistantTaskService;
+	private final UserTaskCompletionService userTaskCompletionService;
 	private final UserAvatarService userAvatarService;
 
 	/**
@@ -55,7 +59,7 @@ public class UserController {
 	}
 
 	/**
-	 * [更新资料] 部分更新昵称、头像、每周可投入小时数，以及可选绑定大陆手机号（无短信校验，见接口文档）。
+	 * [更新资料] 部分更新昵称、头像、每周可投入小时数；可选绑定大陆手机号（与登录密码共用，绑定后可手机号+密码登录）。
 	 */
 	@PatchMapping("/me")
 	@Operation(summary = "更新当前用户资料")
@@ -83,14 +87,25 @@ public class UserController {
 		return userAssistantTaskService.listTasksForUser(user.userId(), status);
 	}
 
+	@PostMapping("/me/tasks/complete")
+	@Operation(
+			summary = "标记任务已完成",
+			description = "仅允许从未完成 → 已完成。source=assistant（user_assistant_tasks，OPEN→DONE）或 growth（tasks，PENDING/IN_PROGRESS→COMPLETED）。聊天内说「XX 完成了」走 AI 工具，与本接口等价。")
+	public CompleteUserTaskResponse completeMyTask(
+			@CurrentUser JwtUserClaims user, @Valid @RequestBody CompleteUserTaskRequest body) {
+		return userTaskCompletionService.complete(user.userId(), body.source(), body.taskId());
+	}
+
 	@PatchMapping("/me/onboarding")
-	@Operation(summary = "更新首次登录用户画像（身份、爱好、探索方向等）")
+	@Operation(summary = "更新首次登录用户画像（年龄、职业、爱好、昵称、探索方向等）")
 	public UserProfileResponse patchOnboarding(
 			@CurrentUser JwtUserClaims user, @Valid @RequestBody PatchOnboardingRequest body) {
 		var updated = appUserService.updateOnboardingProfile(
 				user.userId(),
-				body.identitySummary(),
+				body.age(),
+				body.occupation(),
 				body.hobbies(),
+				body.nickname(),
 				body.explorationInterests(),
 				body.onboardingCompleted());
 		return appUserService.toProfileResponse(updated);

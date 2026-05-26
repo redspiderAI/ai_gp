@@ -59,6 +59,7 @@ public class AiChatUserContextBuilder {
 			- 用户说「今天」且未给具体日期时，date / dueFrom / dueTo 均用【当前日期】；用户明确说了「昨天」「5月20号」等则用对应日期。
 			- 标题匹配：在候选里按用户描述模糊匹配 title；**唯一**匹配则立即 complete_growth_task 或 update_task(status=DONE)；**多条**匹配则列出并请用户确认是哪一条；**零条**则说明未找到，不要编造已完成。
 			- 成长计划任务（tasks 表）：用 complete_growth_task；助手待办（user_assistant_tasks）：用 update_task 设 status=DONE。
+			- App 端也可调用 POST /api/v1/users/me/tasks/complete（source=assistant|growth），与本规则一致。
 			- 同一事项可能同时存在于两表（如「[学习计划] 英语」与 growth 任务「英语」）；优先 complete_growth_task，会自动同步助手待办；若仅助手待办则 update_task。
 			- 用户未指明是哪项、且今日候选多于一条时，**必须追问**，不要默认猜第一个。
 			""";
@@ -125,7 +126,10 @@ public class AiChatUserContextBuilder {
 			sb.append("\n【用户基本信息】\n");
 			appendLine(sb, "昵称", user.getNickname());
 			appendLine(sb, "对外ID", user.getUid());
-			appendLine(sb, "身份/角色", user.getProfileIdentity());
+			if (user.getProfileAge() != null) {
+				appendLine(sb, "年龄", String.valueOf(user.getProfileAge()));
+			}
+			appendLine(sb, "职业", user.getProfileOccupation());
 			appendLine(sb, "爱好", user.getProfileHobbies());
 			appendLine(sb, "希望探索的方向", user.getProfileExploration());
 			if (user.getWeeklyHours() != null) {

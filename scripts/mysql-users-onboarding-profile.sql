@@ -1,13 +1,35 @@
--- 用户首次登录画像（身份、爱好、探索方向等）。在已有库执行一次，可重复执行。
--- 与 AppUser 字段：profile_identity, profile_hobbies, profile_exploration, onboarding_completed 对应。
+-- 用户首次登录画像（年龄、职业、爱好、探索方向等）。在已有库执行一次，可重复执行。
+-- 与 AppUser 字段：profile_age, profile_occupation, profile_hobbies, profile_exploration, onboarding_completed 对应。
 
 SET @db = DATABASE();
 
 SET @sql = IF(
     (SELECT COUNT(*) FROM information_schema.COLUMNS
-     WHERE TABLE_SCHEMA = @db AND TABLE_NAME = 'users' AND COLUMN_NAME = 'profile_identity') = 0,
-    'ALTER TABLE users ADD COLUMN profile_identity VARCHAR(200) DEFAULT NULL COMMENT ''身份/角色简述（首次登录画像）'' AFTER language',
-    'SELECT ''skip profile_identity'' AS n'
+     WHERE TABLE_SCHEMA = @db AND TABLE_NAME = 'users' AND COLUMN_NAME = 'profile_age') = 0,
+    'ALTER TABLE users ADD COLUMN profile_age TINYINT UNSIGNED DEFAULT NULL COMMENT ''年龄（周岁，首次登录画像）'' AFTER language',
+    'SELECT ''skip profile_age'' AS n'
+);
+PREPARE s FROM @sql;
+EXECUTE s;
+DEALLOCATE PREPARE s;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @db AND TABLE_NAME = 'users' AND COLUMN_NAME = 'profile_identity') > 0
+    AND (SELECT COUNT(*) FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = @db AND TABLE_NAME = 'users' AND COLUMN_NAME = 'profile_occupation') = 0,
+    'ALTER TABLE users CHANGE COLUMN profile_identity profile_occupation VARCHAR(200) DEFAULT NULL COMMENT ''职业（首次登录画像）''',
+    'SELECT ''skip rename profile_identity'' AS n'
+);
+PREPARE s FROM @sql;
+EXECUTE s;
+DEALLOCATE PREPARE s;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @db AND TABLE_NAME = 'users' AND COLUMN_NAME = 'profile_occupation') = 0,
+    'ALTER TABLE users ADD COLUMN profile_occupation VARCHAR(200) DEFAULT NULL COMMENT ''职业（首次登录画像）'' AFTER profile_age',
+    'SELECT ''skip profile_occupation'' AS n'
 );
 PREPARE s FROM @sql;
 EXECUTE s;
@@ -16,7 +38,7 @@ DEALLOCATE PREPARE s;
 SET @sql = IF(
     (SELECT COUNT(*) FROM information_schema.COLUMNS
      WHERE TABLE_SCHEMA = @db AND TABLE_NAME = 'users' AND COLUMN_NAME = 'profile_hobbies') = 0,
-    'ALTER TABLE users ADD COLUMN profile_hobbies TEXT DEFAULT NULL COMMENT ''爱好'' AFTER profile_identity',
+    'ALTER TABLE users ADD COLUMN profile_hobbies TEXT DEFAULT NULL COMMENT ''爱好'' AFTER profile_occupation',
     'SELECT ''skip profile_hobbies'' AS n'
 );
 PREPARE s FROM @sql;

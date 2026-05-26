@@ -142,7 +142,8 @@ public class AuthService {
 			throw new IllegalArgumentException("该账号未设置密码登录");
 		}
 		assertPasswordPolicy(newPassword);
-		id.setCredential(passwordEncoder.encode(newPassword));
+		String encoded = passwordEncoder.encode(newPassword);
+		syncLoginPasswordForUser(id.getUser().getId(), encoded);
 		userIdentityRepository.save(id);
 
 		userSessionService.revokeAllForUser(id.getUser().getId());
@@ -207,7 +208,8 @@ public class AuthService {
 		if (stored == null || !passwordEncoder.matches(oldPassword, stored)) {
 			throw new UnauthorizedException("原密码不正确");
 		}
-		row.setCredential(passwordEncoder.encode(newPassword));
+		String encoded = passwordEncoder.encode(newPassword);
+		syncLoginPasswordForUser(user.getId(), encoded);
 		userIdentityRepository.save(row);
 
 		revokeOtherSessions(claims.userId(), claims.sessionId());
@@ -256,9 +258,30 @@ public class AuthService {
 					.findByUid(uidKey)
 					.flatMap(u -> findPasswordIdentity(u.getId()));
 		}
-		return userIdentityRepository
-				.findByIdentityTypeAndIdentifier(IdentityType.phone, acc)
-				.filter(id -> id.getCredential() != null);
+		try {
+			EmailOrPhoneAccount parsed = EmailOrPhoneAccount.parse(acc);
+			if (parsed.identityType() == IdentityType.phone) {
+				return userIdentityRepository
+						.findByIdentityTypeAndIdentifier(IdentityType.phone, parsed.identifier())
+						.filter(id -> id.getCredential() != null);
+			}
+		} catch (IllegalArgumentException ignored) {
+			// 非合法手机号格式
+		}
+		return Optional.empty();
+	}
+
+	/** 邮箱/手机登录密码共用：改密或重置后同步到所有已设密码的邮箱、手机身份。 */
+	private void syncLoginPasswordForUser(Long userId, String encodedPassword) {
+		for (UserIdentity identity : userIdentityRepository.findByUser_Id(userId)) {
+			if (identity.getCredential() == null) {
+				continue;
+			}
+			if (identity.getIdentityType() == IdentityType.email
+					|| identity.getIdentityType() == IdentityType.phone) {
+				identity.setCredential(encodedPassword);
+			}
+		}
 	}
 
 	private static boolean looksLikePublicUid(String acc) {

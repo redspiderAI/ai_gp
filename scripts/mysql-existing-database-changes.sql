@@ -167,3 +167,73 @@ UPDATE user_llm_settings SET
 UPDATE user_assistant_tasks
 SET due_date = DATE(due_at)
 WHERE due_at IS NOT NULL AND due_date IS NULL;
+
+-- users 首次画像：profile_identity 重命名为 profile_occupation，新增 profile_age（可重复执行）
+SET @db = DATABASE();
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @db AND TABLE_NAME = 'users' AND COLUMN_NAME = 'profile_age') = 0,
+    'ALTER TABLE users ADD COLUMN profile_age TINYINT UNSIGNED DEFAULT NULL COMMENT ''年龄（周岁，首次登录画像）'' AFTER language',
+    'SELECT ''skip profile_age'' AS n'
+);
+PREPARE s FROM @sql;
+EXECUTE s;
+DEALLOCATE PREPARE s;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @db AND TABLE_NAME = 'users' AND COLUMN_NAME = 'profile_identity') > 0
+    AND (SELECT COUNT(*) FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = @db AND TABLE_NAME = 'users' AND COLUMN_NAME = 'profile_occupation') = 0,
+    'ALTER TABLE users CHANGE COLUMN profile_identity profile_occupation VARCHAR(200) DEFAULT NULL COMMENT ''职业（首次登录画像）''',
+    'SELECT ''skip rename profile_identity'' AS n'
+);
+PREPARE s FROM @sql;
+EXECUTE s;
+DEALLOCATE PREPARE s;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @db AND TABLE_NAME = 'users' AND COLUMN_NAME = 'profile_occupation') = 0
+    AND (SELECT COUNT(*) FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = @db AND TABLE_NAME = 'users' AND COLUMN_NAME = 'profile_identity') = 0,
+    'ALTER TABLE users ADD COLUMN profile_occupation VARCHAR(200) DEFAULT NULL COMMENT ''职业（首次登录画像）'' AFTER profile_age',
+    'SELECT ''skip profile_occupation'' AS n'
+);
+PREPARE s FROM @sql;
+EXECUTE s;
+DEALLOCATE PREPARE s;
+
+-- users.phone：绑定手机号字段及历史数据回填（可重复执行，详见 scripts/mysql-users-phone.sql）
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @db AND TABLE_NAME = 'users' AND COLUMN_NAME = 'phone') = 0,
+    'ALTER TABLE users ADD COLUMN phone CHAR(11) DEFAULT NULL COMMENT ''已绑定手机号（与 user_identities.phone 同步）'' AFTER nickname',
+    'SELECT ''skip phone column'' AS n'
+);
+PREPARE s FROM @sql;
+EXECUTE s;
+DEALLOCATE PREPARE s;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = @db AND TABLE_NAME = 'users' AND INDEX_NAME = 'uk_users_phone') = 0,
+    'ALTER TABLE users ADD UNIQUE KEY uk_users_phone (phone)',
+    'SELECT ''skip uk_users_phone'' AS n'
+);
+PREPARE s FROM @sql;
+EXECUTE s;
+DEALLOCATE PREPARE s;
+
+UPDATE users u
+INNER JOIN user_identities ui ON ui.user_id = u.id AND ui.identity_type = 'phone'
+SET u.phone = ui.identifier
+WHERE u.phone IS NULL;
+
+UPDATE user_identities phone
+INNER JOIN user_identities email ON email.user_id = phone.user_id AND email.identity_type = 'email'
+SET phone.credential = email.credential
+WHERE phone.identity_type = 'phone'
+  AND phone.credential IS NULL
+  AND email.credential IS NOT NULL;

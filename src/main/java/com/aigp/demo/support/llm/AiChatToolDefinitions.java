@@ -163,22 +163,14 @@ public final class AiChatToolDefinitions {
 								List.of())),
 				tool(
 						"complete_growth_task",
-						"将成长计划任务标记为已完成（tasks 表，等同 App 内「完成」）。仅 PENDING/IN_PROGRESS 且须在计划日当天。",
+						"将成长计划任务标记为已完成（tasks 表）。仅未完成状态；须先 list_growth_tasks 确认 taskId。",
 						Map.of(
 								"type",
 								"object",
 								"properties",
 								Map.of(
 										"taskId",
-										Map.of("type", "integer", "description", "成长计划任务 ID（来自 list_growth_tasks）"),
-										"actualMinutes",
-										Map.of("type", "integer", "description", "可选，实际耗时分钟"),
-										"qualityScore",
-										Map.of(
-												"type",
-												"integer",
-												"description",
-												"可选，自评 1～5")),
+										Map.of("type", "integer", "description", "成长计划任务 ID（来自 list_growth_tasks）")),
 								"required",
 								List.of("taskId"))));
 	}

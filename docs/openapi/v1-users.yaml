@@ -113,6 +113,88 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
 
+  /api/v1/users/me/onboarding:
+    patch:
+      tags: [用户资料]
+      summary: 更新首次登录用户画像
+      description: |
+        年龄、职业、爱好、昵称（仅未设置昵称时生效）、希望探索的专业方向等。
+        部分更新：未传的字段不改；文本字段传空字符串可清空。
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchOnboardingRequest"
+            example:
+              age: 22
+              occupation: 大学生
+              hobbies: 阅读、跑步
+              nickname: 小明
+              explorationInterests: 人工智能、产品设计
+              onboardingCompleted: true
+      responses:
+        "200":
+          description: 更新后的用户资料
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfileResponse"
+        "400":
+          description: 校验失败（如 age 超出 1–120）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: 未登录
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/users/me/tasks/complete:
+    post:
+      tags: [用户资料]
+      summary: 标记任务已完成
+      description: |
+        仅允许 **未完成 → 已完成**，不可回退或改其他字段。
+        - `source=assistant`：`user_assistant_tasks`，`OPEN` → `DONE`
+        - `source=growth`：`tasks`，`PENDING`/`IN_PROGRESS` → `COMPLETED`（须在计划日当天）
+        与对话内说「我的英语复习完了」等价。
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompleteUserTaskRequest"
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompleteUserTaskResponse"
+        "400":
+          description: source 非法或参数校验失败
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: 未登录
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: 任务不存在或非本人
+        "409":
+          description: 已完成/已取消或不在可完成状态
+
   /api/v1/public/avatars/{uid}:
     get:
       tags: [公开头像]
@@ -191,7 +273,35 @@ components:
           maximum: 40
         phone:
           type: string
-          description: 大陆 11 位手机号
+          pattern: '^1[3-9]\d{9}$'
+          description: 11 位大陆手机号；绑定后与邮箱登录密码共用，可用手机号+密码登录（暂无短信验证）
+
+    PatchOnboardingRequest:
+      type: object
+      description: 首次登录画像；nickname 仅在用户尚未设置昵称时生效
+      properties:
+        age:
+          type: integer
+          minimum: 1
+          maximum: 120
+          description: 年龄（周岁）
+        occupation:
+          type: string
+          maxLength: 200
+          description: 职业
+        hobbies:
+          type: string
+          maxLength: 4000
+        nickname:
+          type: string
+          maxLength: 50
+          description: 仅当账号尚未设置昵称时写入
+        explorationInterests:
+          type: string
+          maxLength: 4000
+          description: 希望探索的专业方向等
+        onboardingCompleted:
+          type: boolean
 
     UserProfileResponse:
       type: object
@@ -226,9 +336,14 @@ components:
           type: string
           nullable: true
           description: 脱敏手机号
-        identitySummary:
+        age:
+          type: integer
+          nullable: true
+          description: 年龄（周岁）
+        occupation:
           type: string
           nullable: true
+          description: 职业
         hobbies:
           type: string
           nullable: true
@@ -237,3 +352,31 @@ components:
           nullable: true
         onboardingCompleted:
           type: boolean
+
+    CompleteUserTaskRequest:
+      type: object
+      required: [source, taskId]
+      properties:
+        source:
+          type: string
+          enum: [assistant, growth]
+          description: assistant=user_assistant_tasks，growth=tasks
+        taskId:
+          type: integer
+          format: int64
+          minimum: 1
+
+    CompleteUserTaskResponse:
+      type: object
+      properties:
+        source:
+          type: string
+          enum: [assistant, growth]
+        assistantTask:
+          type: object
+          nullable: true
+          description: source=assistant 时有值
+        growthTask:
+          type: object
+          nullable: true
+          description: source=growth 时有值
