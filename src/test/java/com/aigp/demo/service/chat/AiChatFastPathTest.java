@@ -26,4 +26,12 @@ class AiChatFastPathTest {
 		assertFalse(
 				AiChatFastPath.tryPlan("你好", null, false, true).isPresent());
 	}
+
+	@Test
+	void fastPathAddsUserProfileForWhoAmI() {
+		var plan = AiChatFastPath.tryPlan("你好我是谁", null, false, false);
+		assertTrue(plan.isPresent());
+		assertTrue(plan.get().hasCapability(AiChatCapabilityId.USER_PROFILE));
+		assertTrue(plan.get().reason().contains("用户画像"));
+	}
 }

@@ -22,8 +22,10 @@ import com.aigp.demo.web.ai.dto.AiChatSessionPageResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.aigp.demo.domain.enums.AiChatRoundAction;
+import com.aigp.demo.service.chat.AiChatExecutionToolGuard;
 import com.aigp.demo.service.chat.AiChatCapabilityCatalog;
 import com.aigp.demo.service.chat.AiChatCapabilityId;
+import com.aigp.demo.service.chat.AiChatIntentAnalysisPolicy;
 import com.aigp.demo.service.chat.AiChatIntentSignals;
 import com.aigp.demo.service.chat.AiChatRoutePlan;
 import com.aigp.demo.service.chat.AiChatRouteResolver;
@@ -219,21 +221,18 @@ public class AiChatService {
 		List<Map<String, Object>> sessionHistoryForIntent = historyPayload.messages();
 
 		String intentHint = null;
-		if (appProperties.getChat().isMultiPhaseEnabled()
-				&& !route.skipIntentAnalysis()
-				&& (route.hasCapability(AiChatCapabilityId.ASSISTANT_TASKS)
-						|| route.hasCapability(AiChatCapabilityId.PLAN_PROPOSAL)
-						|| route.hasCapability(AiChatCapabilityId.GROWTH_PLAN_TASKS))) {
+		if (AiChatIntentAnalysisPolicy.shouldAnalyzeIntent(appProperties.getChat(), route)) {
 			intentHint = aiChatPlanningService.analyzeUserIntent(
 					providerConfig, userMessage, sessionHistoryForIntent);
 			route = alignRouteWithIntentHint(route, intentHint);
 			pipelineDebugLog.step("route-after-intent", "capabilities=%s", route.capabilities());
-		} else if (appProperties.getChat().isMultiPhaseEnabled()) {
-			if (route.skipIntentAnalysis()) {
-				pipelineDebugLog.step("intent", "跳过：快速/确定性路由");
-			} else {
-				pipelineDebugLog.step("intent", "跳过：本轮未启用 assistant_tasks / plan_proposal");
-			}
+		} else {
+			pipelineDebugLog.step(
+					"intent",
+					"跳过：policy=%s fastOrDeterministic=%s planProposal=%s",
+					appProperties.getChat().isIntentAnalysisEnabled() ? "legacy-off" : "default-skip",
+					route.skipIntentAnalysis(),
+					route.hasCapability(AiChatCapabilityId.PLAN_PROPOSAL));
 		}
 
 		AiChatDataPlan plan = route.toDataPlan();
@@ -273,7 +272,8 @@ public class AiChatService {
 				llmMessages.size(),
 				!tools.isEmpty(),
 				hasImages);
-		ExecutionResult execution = runExecutionLoop(userId, executionProvider, llmMessages, tools);
+		AiChatExecutionToolGuard toolGuard = AiChatExecutionToolGuard.from(route, intentHint);
+		ExecutionResult execution = runExecutionLoop(userId, executionProvider, llmMessages, tools, toolGuard);
 		String assistantText = execution.text();
 		AiChatPlanProposalHint planProposal = execution.planProposal();
 		AiChatMessage savedUser = persistMessage(session, ChatMessageRole.USER, userMessage, null, null, null);
@@ -400,7 +400,8 @@ public class AiChatService {
 			Long userId,
 			AppProperties.ChatProvider providerConfig,
 			List<Map<String, Object>> messages,
-			List<Map<String, Object>> tools) {
+			List<Map<String, Object>> tools,
+			AiChatExecutionToolGuard toolGuard) {
 		if (tools == null || tools.isEmpty()) {
 			ChatCompletionResult result =
 					openAiCompatibleChatClient.chat(providerConfig, messages, null, "execute");
@@ -415,11 +416,19 @@ public class AiChatService {
 			pipelineDebugLog.step(phase, "开始第 %s/%s 轮工具对话", round + 1, maxRounds);
 			ChatCompletionResult result = openAiCompatibleChatClient.chat(providerConfig, messages, tools, phase);
 			if (!result.hasToolCalls()) {
+				AiChatRoundAction roundAction = roundActionTracker.get();
+				if (toolGuard.shouldRetryMissingMutationTools(result.content(), roundAction)) {
+					toolGuard.markRetried();
+					pipelineDebugLog.step(phase, "未调任务工具却声称已操作，追加一轮强制补调");
+					messages.add(Map.of("role", "system", "content", toolGuard.retrySystemNudge()));
+					continue;
+				}
 				pipelineDebugLog.step(phase, "无 tool_calls，结束执行环");
-				return new ExecutionResult(
-						finalizeAssistantText(result.content()),
-						planProposal,
-						roundActionTracker.get());
+				String text = finalizeAssistantText(result.content());
+				if (toolGuard.needsFallbackAfterMissingTools(text, roundAction)) {
+					text = toolGuard.fallbackWhenStillMissingTools();
+				}
+				return new ExecutionResult(text, planProposal, roundAction);
 			}
 
 			Map<String, Object> assistantMsg = new LinkedHashMap<>();

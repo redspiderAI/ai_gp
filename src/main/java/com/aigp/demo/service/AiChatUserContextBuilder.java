@@ -14,15 +14,24 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 /**
- * 为 AI 对话组装 system 上下文：用户画像 + 未完成助手任务摘要。
+ * 为 AI 对话组装 system 上下文：按 {@link AiChatDataPlan} 能力切片，仅拼接本轮需要的规则与数据块。
  */
 @Component
 @RequiredArgsConstructor
 public class AiChatUserContextBuilder {
 
-	private static final String SYSTEM_BASE =
+	/** 纯闲聊 / 无工具场景的最小人设（不含任务工具说明）。 */
+	private static final String SYSTEM_PERSONA =
 			"""
 			你是「AI成长计划」中的智能助手。请用简洁、友好的中文回复用户。
+			请结合下方上下文回复；未提供的信息不要编造。
+			日期格式：yyyy-MM-dd；时刻格式：yyyy-MM-dd HH:mm。
+			""";
+
+	/** 启用助手任务工具时追加：创建、提醒与日期时刻规则。 */
+	private static final String TASK_SCHEDULING_RULES =
+			"""
+
 			你可以通过工具帮用户管理个人任务（创建、查询、更新、取消），任务与成长计划中的排期任务相互独立。
 
 			【记待办 / 安排】
@@ -38,8 +47,6 @@ public class AiChatUserContextBuilder {
 			- 用户已明确时刻时，严格按用户语义填写 dueAt，不要擅自改点。
 			- 创建成功后，向用户确认已设置提醒；**不要**声称「无法在指定时间主动推送」——后端会在到点自动投递：写入当前聊天会话、站内通知，并 WebSocket 推送（用户在线时聊天页可实时刷新）。
 			- 用户问「到时候怎么提醒」时，说明：到点会在 App 聊天里收到助手消息，并有通知提醒；请保持 App 在线或允许系统通知。
-
-			日期格式：yyyy-MM-dd；时刻格式：yyyy-MM-dd HH:mm。请结合下方上下文回复；未提供的信息不要编造。
 			""";
 
 	private static final String TASK_TOOL_RULES =
@@ -84,6 +91,9 @@ public class AiChatUserContextBuilder {
 	private final UserIdentityRepository userIdentityRepository;
 	private final CompanionMemoryService companionMemoryService;
 
+	/**
+	 * 按本轮 {@link AiChatDataPlan} 拼接 system：纯闲聊仅人设+时间；有工具时再追加对应规则块与摘要。
+	 */
 	public String buildSystemPrompt(
 			AppUser user,
 			AiChatDataPlan plan,
@@ -92,7 +102,7 @@ public class AiChatUserContextBuilder {
 			String intentHint,
 			String unsupportedHint,
 			List<Long> messageImageAssetIds) {
-		StringBuilder sb = new StringBuilder(SYSTEM_BASE);
+		StringBuilder sb = new StringBuilder(SYSTEM_PERSONA);
 		appendCurrentDate(sb, user);
 		if (messageImageAssetIds != null && !messageImageAssetIds.isEmpty()) {
 			String ids = messageImageAssetIds.stream().map(String::valueOf).collect(Collectors.joining(", "));
@@ -110,6 +120,7 @@ public class AiChatUserContextBuilder {
 			sb.append("\n【暂未开放能力（须在回复中说明）】\n").append(unsupportedHint.trim()).append('\n');
 		}
 		if (plan != null && plan.needTaskTools()) {
+			sb.append(TASK_SCHEDULING_RULES);
 			sb.append(TASK_TOOL_RULES);
 			sb.append(COMPLETE_TASK_RULES);
 		}
@@ -145,10 +156,12 @@ public class AiChatUserContextBuilder {
 					.findByUser_IdAndIdentityType(user.getId(), IdentityType.phone)
 					.ifPresent(id -> appendLine(sb, "手机号", maskPhone(id.getIdentifier())));
 		}
-		companionMemoryService.getMemoryTextForChat(user.getId()).ifPresent(memory -> {
-			sb.append("\n【长期陪伴记忆（由系统每周整理，勿编造；与用户本轮说法冲突时以本轮为准）】\n");
-			sb.append(memory.trim()).append('\n');
-		});
+		if (shouldIncludeCompanionMemory(plan)) {
+			companionMemoryService.getMemoryTextForChat(user.getId()).ifPresent(memory -> {
+				sb.append("\n【长期陪伴记忆（由系统每周整理，勿编造；与用户本轮说法冲突时以本轮为准）】\n");
+				sb.append(memory.trim()).append('\n');
+			});
+		}
 		if (plan == null || plan.needTaskList()) {
 			sb.append("\n【助手任务摘要（详细请用 list_tasks 查询）】\n");
 			if (StringUtils.hasText(tasksSummary)) {
@@ -167,6 +180,21 @@ public class AiChatUserContextBuilder {
 			}
 		}
 		return sb.toString();
+	}
+
+	/**
+	 * 纯闲聊不注入长期记忆，减少 execute 阶段 token；任务/计划/画像场景仍注入。
+	 */
+	private static boolean shouldIncludeCompanionMemory(AiChatDataPlan plan) {
+		if (plan == null) {
+			return true;
+		}
+		return plan.needUserProfile()
+				|| plan.needTaskTools()
+				|| plan.needGrowthPlanTools()
+				|| plan.needPlanProposalTools()
+				|| plan.needTaskList()
+				|| plan.needGrowthTaskList();
 	}
 
 	private static final DateTimeFormatter CURRENT_DATETIME =

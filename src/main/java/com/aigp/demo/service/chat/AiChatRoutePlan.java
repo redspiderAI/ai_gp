@@ -4,6 +4,7 @@ import com.aigp.demo.service.AiChatDataPlan;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import org.springframework.util.StringUtils;
 
 /**
  * 结构化对话路由：规划阶段选能力，执行阶段按能力加载上下文与工具。
@@ -43,7 +44,7 @@ public record AiChatRoutePlan(
 		boolean planProposal = hasCapability(AiChatCapabilityId.PLAN_PROPOSAL);
 		boolean growthPlan = hasCapability(AiChatCapabilityId.GROWTH_PLAN_TASKS);
 		String status = taskListStatus;
-		if (assistant && (status == null || status.isBlank())) {
+		if (assistant && (status == null || status.isBlank()) && !isTaskStatusQueryReason(reason)) {
 			status = "OPEN";
 		}
 		return new AiChatDataPlan(
@@ -64,6 +65,10 @@ public record AiChatRoutePlan(
 			return false;
 		}
 		return reason.startsWith("快速路由：") || reason.startsWith("确定性路由：");
+	}
+
+	private static boolean isTaskStatusQueryReason(String routeReason) {
+		return StringUtils.hasText(routeReason) && routeReason.contains("查询任务完成状态");
 	}
 
 	public static AiChatRoutePlan defaults() {

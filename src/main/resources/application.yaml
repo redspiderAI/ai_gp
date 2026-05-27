@@ -101,6 +101,8 @@ app:
     max-tool-rounds: ${AI_CHAT_MAX_TOOL_ROUNDS:5}
     multi-phase-enabled: ${AI_CHAT_MULTI_PHASE_ENABLED:true}
     fast-path-enabled: ${AI_CHAT_FAST_PATH_ENABLED:true}
+    # 默认 false：跳过 intent LLM（仅 plan_proposal 仍走）；true 恢复全量意图分析
+    intent-analysis-enabled: ${AI_CHAT_INTENT_ANALYSIS_ENABLED:false}
     planning-history-snippet-messages: ${AI_CHAT_PLANNING_HISTORY_SNIPPET:6}
     push-on-reply-enabled: ${AI_CHAT_PUSH_ON_REPLY:true}
     # 保存 PUT /users/me/llm/settings 时探测 apiKey/baseUrl/model 是否可用

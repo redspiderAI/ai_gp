@@ -52,8 +52,8 @@ flowchart TD
    - 是否开放任务管理工具  
    规划失败时使用「全加载」的保守策略。  
    **快速路由**（`app.chat.fast-path-enabled=true`，默认开启）：问候、短句闲聊且不含待办/成长计划关键词时，**跳过规划 LLM**，仅启用 `chat`（续聊时加 `chat_history`），显著降低延迟。
-4. **意图分析**（多阶段开启且本轮路由含 `assistant_tasks` 时）：再让大模型用几句话总结用户意图，**仅给正式回答参考**，不会原样展示给用户。纯闲聊路由会跳过本步。
-5. **正式回答**：将「系统说明书 +（可选）历史 + 用户本轮输入」发给配置的 AI 提供商（默认 **mimo**，可指定 **ollama**）。
+4. **意图分析**（默认**跳过**；仅路由含 `plan_proposal` 时仍调用 LLM，或配置 `intent-analysis-enabled=true` 恢复旧行为）：用几句话总结用户意图，**仅给正式回答参考**，不会原样展示给用户。快速/确定性路由始终跳过本步。
+5. **正式回答**：将「按能力切片后的 system 说明书 +（可选）历史 + 用户本轮输入」发给配置的 AI 提供商（默认 **mimo**，可指定 **ollama**）。
 6. **工具**：大模型可多次调用后端工具（默认最多 5 轮），包括：
    - **助手待办**：`create_task` / `list_tasks` 等；
    - **计划草案**：`propose_growth_plan`（制定学习计划时，**须先出草案**，禁止批量 `create_task` 代替整份计划）。
@@ -62,7 +62,16 @@ flowchart TD
 
 **对话响应 `roundAction`**：`POST /api/v1/ai/chat` 返回 `roundAction` 字段，便于前端区分本回合是单纯对话还是新建/修改/删除/完成助手提醒（见 `md文档/HTTP接口-AI对话与通知.md` 2.1 节）。
 
-**延迟优化（功能不变）**：常见「查未来几天任务 / 记提醒 / 标记完成」等走 **确定性路由**，跳过 plan、intent 两次 LLM；仍保留复杂话术与制定计划草案的完整多阶段流程。`list_tasks` 工具返回精简字段（无长 description），降低执行阶段第二轮 token。
+**延迟优化（功能不变）**：
+- 常见「查未来几天任务 / 记提醒 / 标记完成」等走 **确定性路由**，跳过 plan、intent 两次 LLM。
+- **默认跳过 intent**（`intent-analysis-enabled=false`）：助手/成长任务场景不再额外打一次意图 LLM；仅 **制定计划草案**（`plan_proposal`）仍保留 intent。
+- **system 按能力切片**：纯闲聊仅拼接最小人设；启用任务/计划工具时才追加对应规则块与任务摘要，降低 execute 阶段 token。
+- **画像查询快路径**：「我是谁 / 我的昵称 / 我的爱好」等话术在快速路由下追加 `user_profile`，从 `users` 表注入昵称、爱好等到 system（仍跳过 plan/intent LLM）。
+- `list_tasks` 工具返回精简字段（无长 description），降低执行阶段第二轮 token。
+
+**路由与执行兜底**：
+- 「**完成了吗** / 有没有完成」等**询问**走「查询任务完成状态」，不会误判为「标记完成」。
+- 执行环内若模型**未调任务工具**却回复「已安排 / 已标记完成」等，会**追加一轮**强制补调；仍失败则返回「未能写入待办」类话术，避免 `roundAction=CHAT_ONLY` 与口头承诺不一致。
 
 **历史消息 `roundAction`**：`POST /ai/chat` 落库时写入 `ai_chat_messages.round_action`；`GET .../messages` 在 **ASSISTANT** 消息上返回同名字段，便于多端刷新会话列表后渲染动作标签。
 8. **落库规则**：数据库里**只存两条**——本轮用户消息、本轮助手最终回复。中间的规划、意图分析、工具调用过程**不写入** `ai_chat_messages`（计划草案存 `growth_plan_proposals`）。
@@ -73,8 +82,9 @@ flowchart TD
 | 配置 | 含义 | 默认 |
 |------|------|------|
 | `app.chat.default-provider` / `AI_CHAT_DEFAULT_PROVIDER` | 默认 AI 提供商 | `mimo` |
-| `app.chat.multi-phase-enabled` / `AI_CHAT_MULTI_PHASE_ENABLED` | 是否启用规划 + 意图分析 | `true` |
+| `app.chat.multi-phase-enabled` / `AI_CHAT_MULTI_PHASE_ENABLED` | 是否启用规划 +（可选）意图分析 | `true` |
 | `app.chat.fast-path-enabled` / `AI_CHAT_FAST_PATH_ENABLED` | 闲聊是否跳过规划 LLM | `true` |
+| `app.chat.intent-analysis-enabled` / `AI_CHAT_INTENT_ANALYSIS_ENABLED` | 是否对助手/成长任务也跑意图 LLM（默认 false，仅 plan_proposal 仍跑） | `false` |
 | `app.chat.max-history-messages` | 正式回答带入的历史条数上限 | `24` |
 | `app.chat.max-tool-rounds` | 任务工具最多轮次 | `5` |
 | `app.chat.push-on-reply-enabled` | 对话回复是否 WebSocket 推送 | `true` |

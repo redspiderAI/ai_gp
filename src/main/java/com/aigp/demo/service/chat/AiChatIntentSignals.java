@@ -75,6 +75,27 @@ public final class AiChatIntentSignals {
 				&& (lower.contains("propose") || lower.contains("草案") || lower.contains("待确认"));
 	}
 
+	/** 意图分析是否表明应调用会改变任务状态的工具（create/update/delete/complete）。 */
+	public static boolean suggestsTaskMutation(String intentHint) {
+		if (!StringUtils.hasText(intentHint)) {
+			return false;
+		}
+		String lower = intentHint.toLowerCase(Locale.ROOT);
+		if (lower.contains("create_task")
+				|| lower.contains("update_task")
+				|| lower.contains("delete_task")
+				|| lower.contains("complete_growth_task")) {
+			if (NEGATED_TOOL_USE.matcher(intentHint).find()) {
+				return false;
+			}
+			return POSITIVE_TOOL_USE.matcher(intentHint).find()
+					|| intentHint.contains("应调用")
+					|| intentHint.contains("必须调用")
+					|| intentHint.contains("需要调用");
+		}
+		return false;
+	}
+
 	/** 意图分析是否表明应查询/完成成长计划 tasks 表任务。 */
 	public static boolean suggestsGrowthPlanTools(String intentHint) {
 		if (!StringUtils.hasText(intentHint)) {
@@ -91,7 +112,8 @@ public final class AiChatIntentSignals {
 			return true;
 		}
 		String lower = h.toLowerCase(Locale.ROOT);
-		return (lower.contains("完成了") || lower.contains("做完了") || lower.contains("标记完成"))
+		return (AiChatTaskPhraseSignals.mentionsCompletion(h)
+						&& !AiChatTaskPhraseSignals.isTaskStatusQuery(h))
 				&& (lower.contains("学习") || lower.contains("计划") || lower.contains("成长") || lower.contains("任务"));
 	}
 

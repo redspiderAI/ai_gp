@@ -31,7 +31,7 @@ public final class AiChatDeterministicRoute {
 			Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
 
 	private static final Pattern TASK_COMPLETE = Pattern.compile(
-			".*(完成了|做完了|搞定了|已完成|标记完成|任务完成).*",
+			".*(完成了|做完了|搞定了|已完成|标记完成|任务完成|两个都完成|都完成了|全部完成).*",
 			Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
 
 	private static final Pattern TASK_DELETE = Pattern.compile(
@@ -69,13 +69,19 @@ public final class AiChatDeterministicRoute {
 			return Optional.of(new AiChatRoutePlan(
 					caps, List.of(), "OPEN", "确定性路由：查询任务列表"));
 		}
+		if (AiChatTaskPhraseSignals.isTaskStatusQuery(msg)) {
+			caps.add(AiChatCapabilityId.ASSISTANT_TASKS);
+			caps.add(AiChatCapabilityId.GROWTH_PLAN_TASKS);
+			return Optional.of(new AiChatRoutePlan(
+					caps, List.of(), null, "确定性路由：查询任务完成状态"));
+		}
 		if (TASK_CREATE.matcher(msg).matches()) {
 			caps.add(AiChatCapabilityId.ASSISTANT_TASKS);
 			caps.add(AiChatCapabilityId.USER_PROFILE);
 			return Optional.of(new AiChatRoutePlan(
 					caps, List.of(), "OPEN", "确定性路由：创建助手待办/提醒"));
 		}
-		if (TASK_COMPLETE.matcher(msg).matches()) {
+		if (TASK_COMPLETE.matcher(msg).matches() && AiChatTaskPhraseSignals.isTaskCompleteStatement(msg)) {
 			caps.add(AiChatCapabilityId.ASSISTANT_TASKS);
 			caps.add(AiChatCapabilityId.GROWTH_PLAN_TASKS);
 			return Optional.of(new AiChatRoutePlan(

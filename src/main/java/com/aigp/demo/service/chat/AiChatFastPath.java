@@ -46,10 +46,15 @@ public final class AiChatFastPath {
 		if (sessionHasMessages || StringUtils.hasText(historySnippet)) {
 			caps.add(AiChatCapabilityId.CHAT_HISTORY);
 		}
+		if (AiChatProfilePhraseSignals.looksLikeProfileQuery(msg)) {
+			caps.add(AiChatCapabilityId.USER_PROFILE);
+		}
 		String reason =
-				SIMPLE_GREETING.matcher(msg).matches()
-						? "快速路由：问候/寒暄"
-						: "快速路由：短句闲聊";
+				AiChatProfilePhraseSignals.looksLikeProfileQuery(msg)
+						? "快速路由：用户画像查询"
+						: SIMPLE_GREETING.matcher(msg).matches()
+								? "快速路由：问候/寒暄"
+								: "快速路由：短句闲聊";
 		return Optional.of(new AiChatRoutePlan(caps, List.of(), null, reason));
 	}
 

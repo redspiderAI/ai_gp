@@ -103,6 +103,11 @@ public class AppProperties {
 		private boolean multiPhaseEnabled = true;
 		/** 闲聊/短句走确定性路由，跳过 plan（及无任务时的 intent）以降低延迟 */
 		private boolean fastPathEnabled = true;
+		/**
+		 * 是否对助手/成长任务等场景启用意图分析 LLM（默认 false，仅 plan_proposal 仍走 intent）。
+		 * 为 true 时恢复「路由含 assistant_tasks 等即跑 intent」的旧行为。
+		 */
+		private boolean intentAnalysisEnabled = false;
 		/** 规划阶段带入的最近对话条数（仅 USER/ASSISTANT 文本摘要） */
 		private int planningHistorySnippetMessages = 6;
 		/** 对话回复完成后是否 WebSocket 推送 CHAT_REPLY（用户在线时） */

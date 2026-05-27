@@ -70,6 +70,9 @@ public class AiChatRouteResolver {
 			caps.add(AiChatCapabilityId.GROWTH_PLAN_TASKS);
 			caps.add(AiChatCapabilityId.CHAT_HISTORY);
 		}
+		if (AiChatProfilePhraseSignals.looksLikeProfileQuery(msg)) {
+			caps.add(AiChatCapabilityId.USER_PROFILE);
+		}
 
 		caps.removeIf(c -> !c.available());
 		for (AiChatCapabilityId u : List.copyOf(unsupported)) {
@@ -200,15 +203,6 @@ public class AiChatRouteResolver {
 	}
 
 	private static boolean looksLikeTaskCompleteRequest(String msg) {
-		if (!StringUtils.hasText(msg)) {
-			return false;
-		}
-		String t = msg.trim();
-		return t.contains("完成了")
-				|| t.contains("做完了")
-				|| t.contains("搞定了")
-				|| t.contains("已完成")
-				|| t.contains("标记完成")
-				|| t.contains("任务完成");
+		return AiChatTaskPhraseSignals.isTaskCompleteStatement(msg);
 	}
 }
