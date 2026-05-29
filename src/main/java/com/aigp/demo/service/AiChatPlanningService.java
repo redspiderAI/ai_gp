@@ -3,8 +3,12 @@ package com.aigp.demo.service;
 import com.aigp.demo.config.AppProperties;
 import com.aigp.demo.service.chat.AiChatCapabilityCatalog;
 import com.aigp.demo.service.chat.AiChatFastPath;
+import com.aigp.demo.service.chat.AiChatPrompts;
+import com.aigp.demo.service.chat.AiChatIntentResolver;
 import com.aigp.demo.service.chat.AiChatRoutePlan;
 import com.aigp.demo.service.chat.AiChatRouteResolver;
+import com.aigp.demo.service.chat.AiChatStructuredIntent;
+import java.util.Optional;
 import com.aigp.demo.support.llm.AiChatPipelineDebugLog;
 import com.aigp.demo.support.llm.ChatCompletionResult;
 import com.aigp.demo.support.llm.OpenAiCompatibleChatClient;
@@ -21,30 +25,11 @@ import org.springframework.util.StringUtils;
 @RequiredArgsConstructor
 public class AiChatPlanningService {
 
-	private static final String PLAN_PROMPT =
-			"""
-			你是「对话路由规划」模块。根据用户本轮输入（及可选的最近对话摘要），选择本轮要启用的能力。
-			不要面向用户说话，只输出一个 JSON 对象；禁止输出 reasoning、禁止 markdown 代码块包裹。
-			"""
-					+ AiChatCapabilityCatalog.plannerSystemAppendix();
-
-	private static final String INTENT_PROMPT =
-			"""
-			你是「意图分析」内部模块，输出仅供后端拼接进 system，用户看不到。
-			下方 messages 中，system 之后、最后一条 user 之前的内容为【当前会话】内已有对话（不含本轮用户输入）。
-			请结合会话历史理解指代（如「今天」「那个会」）后再分析。
-			用 3～5 条短句说明：用户意图、是否应调用任务工具（create_task/list_tasks/update_task 等）、是否应调用 list_growth_tasks/complete_growth_task、是否应调用 propose_growth_plan。
-			用户说「XX完成了」「做完了」：须写明先 list_growth_tasks 与 list_tasks 匹配，唯一匹配再 complete/update；多条须追问；日期默认今天。
-			若为「提醒/记得/别忘了」且未给具体几点，须写明：create_task 应填 dueAt 并由执行模型推荐合理时刻，勿仅 dueDate=今天。
-			用户问提醒如何送达时：后端会在到点自动推送（聊天消息 + 站内通知 + WebSocket），禁止写「无法主动推送/没有定时能力」。
-			禁止：问候用户、向用户提问、以「好的」「请问」开头、输出任何面向用户的完整回复话术。
-			不要编造未在上下文出现的事实。
-			""";
-
 	private final AppProperties appProperties;
 	private final OpenAiCompatibleChatClient openAiCompatibleChatClient;
 	private final AiChatPipelineDebugLog pipelineDebugLog;
 	private final AiChatRouteResolver routeResolver;
+	private final AiChatIntentResolver intentResolver;
 
 	public AiChatRoutePlan planRoute(
 			AppProperties.ChatProvider provider,
@@ -68,8 +53,10 @@ public class AiChatPlanningService {
 		if (StringUtils.hasText(recentHistorySnippet)) {
 			userContent.append("\n\n最近对话摘要：\n").append(recentHistorySnippet);
 		}
+		String planSystem =
+				AiChatPrompts.routePlanSystemPrompt(AiChatCapabilityCatalog.plannerCapabilityListAppendix());
 		List<Map<String, Object>> messages = List.of(
-				Map.of("role", "system", "content", PLAN_PROMPT),
+				Map.of("role", "system", "content", planSystem),
 				Map.of("role", "user", "content", userContent.toString()));
 		try {
 			ChatCompletionResult result = openAiCompatibleChatClient.chat(provider, messages, null, "plan");
@@ -86,15 +73,18 @@ public class AiChatPlanningService {
 	/**
 	 * @param sessionHistory 当前会话已落库的 user/assistant 消息（不含本轮输入），按时间升序
 	 */
-	public String analyzeUserIntent(
+	/**
+	 * 意图分析：要求模型输出结构化 JSON；解析失败则返回 empty（不拼自由短文进 execute）。
+	 */
+	public Optional<AiChatStructuredIntent> analyzeUserIntent(
 			AppProperties.ChatProvider provider,
 			String userMessage,
 			List<Map<String, Object>> sessionHistory) {
 		if (!appProperties.getChat().isMultiPhaseEnabled()) {
-			return null;
+			return Optional.empty();
 		}
 		List<Map<String, Object>> messages = new ArrayList<>();
-		messages.add(Map.of("role", "system", "content", INTENT_PROMPT));
+		messages.add(Map.of("role", "system", "content", AiChatPrompts.INTENT_ANALYSIS_SYSTEM));
 		if (sessionHistory != null && !sessionHistory.isEmpty()) {
 			messages.addAll(sessionHistory);
 			pipelineDebugLog.step("intent", "带入当前会话历史 %s 条", sessionHistory.size());
@@ -102,14 +92,26 @@ public class AiChatPlanningService {
 		messages.add(Map.of("role", "user", "content", userMessage));
 		try {
 			ChatCompletionResult result = openAiCompatibleChatClient.chat(provider, messages, null, "intent");
-			String intent = StringUtils.hasText(result.content()) ? result.content().trim() : null;
-			pipelineDebugLog.step("intent", "结果: %s", intent == null ? "<empty>" : intent);
-			return intent;
+			Optional<AiChatStructuredIntent> parsed = intentResolver.parse(result.content());
+			if (parsed.isPresent()) {
+				pipelineDebugLog.step("intent", "结构化结果: %s", parsed.get());
+			} else {
+				pipelineDebugLog.step("intent", "JSON 解析失败，跳过意图增强 raw=%s", truncate(result.content(), 200));
+			}
+			return parsed;
 		} catch (Exception e) {
 			pipelineDebugLog.step("intent", "失败，跳过: %s", e.getMessage());
 			log.warn("意图分析失败，跳过该轮: {}", e.getMessage());
+			return Optional.empty();
+		}
+	}
+
+	private static String truncate(String s, int max) {
+		if (s == null) {
 			return null;
 		}
+		String t = s.trim();
+		return t.length() <= max ? t : t.substring(0, max);
 	}
 
 }

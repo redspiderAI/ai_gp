@@ -116,8 +116,8 @@ public class AiChatRouteResolver {
 			capabilities.add(AiChatCapabilityId.CHAT);
 		}
 
-		String status = textOrNull(node.path("taskListStatus"));
-		String reason = node.path("reason").asText("");
+		String status = normalizeTaskListStatus(node.path("taskListStatus"));
+		String reason = resolveRouteReason(node);
 		return new AiChatRoutePlan(capabilities, unsupported, status, reason);
 	}
 
@@ -133,11 +133,11 @@ public class AiChatRouteResolver {
 		if (node.path("needTaskList").asBoolean(true) || node.path("needTaskTools").asBoolean(true)) {
 			caps.add(AiChatCapabilityId.ASSISTANT_TASKS);
 		}
-		JsonNode statusNode = node.path("taskListStatus");
-		String status = statusNode.isNull() || statusNode.isMissingNode() || statusNode.asText().isBlank()
-				? "OPEN"
-				: statusNode.asText();
-		return new AiChatRoutePlan(caps, List.of(), status, node.path("reason").asText(""));
+		String status = normalizeTaskListStatus(node.path("taskListStatus"));
+		if (status == null && (node.path("needTaskList").asBoolean(true) || node.path("needTaskTools").asBoolean(true))) {
+			status = "OPEN";
+		}
+		return new AiChatRoutePlan(caps, List.of(), status, resolveRouteReason(node));
 	}
 
 	private static String extractJson(String json) {
@@ -151,6 +151,29 @@ public class AiChatRouteResolver {
 			return json.substring(start, end + 1);
 		}
 		return json;
+	}
+
+	private static String resolveRouteReason(JsonNode node) {
+		String codeRaw = textOrNull(node.path("routeReasonCode"));
+		var code = AiChatRouteReasonCode.fromCode(codeRaw);
+		if (code.isPresent()) {
+			return "规划路由：" + code.get().label();
+		}
+		String reason = node.path("reason").asText("");
+		return StringUtils.hasText(reason) ? reason.trim() : "规划路由：未识别";
+	}
+
+	/** taskListStatus 白名单：OPEN / DONE / CANCELLED，非法则 null。 */
+	private static String normalizeTaskListStatus(JsonNode node) {
+		String status = textOrNull(node);
+		if (status == null) {
+			return null;
+		}
+		String upper = status.toUpperCase(Locale.ROOT);
+		if ("OPEN".equals(upper) || "DONE".equals(upper) || "CANCELLED".equals(upper)) {
+			return upper;
+		}
+		return null;
 	}
 
 	private static String textOrNull(JsonNode node) {

@@ -59,6 +59,40 @@ paths:
         '503':
           description: AI 提供商未配置（FEATURE_UNAVAILABLE）
 
+  /api/v1/ai/chat/stream:
+    post:
+      tags: [AI 对话]
+      summary: 流式发送对话消息（SSE 进度 + 最终回复）
+      description: |
+        请求体与 POST /api/v1/ai/chat 相同。响应为 text/event-stream：
+        - event progress：固定话术进度（AiChatProgressEvent JSON）
+        - event done：与 AiChatResponse 相同的 JSON
+        - event error：{ type, message }
+        详见 md文档/HTTP接口-AI对话与通知.md 2.1.1 节。
+      operationId: postAiChatStream
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AiChatRequest'
+      responses:
+        '200':
+          description: SSE 流（text/event-stream）
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: SSE 事件流，非单一 JSON
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          description: AI 提供商未配置（FEATURE_UNAVAILABLE）
+
   /api/v1/ai/chat/sessions:
     get:
       tags: [AI 对话]
@@ -293,6 +327,38 @@ components:
         provider:
           type: string
           description: mimo（默认）或 ollama
+
+    AiChatProgressEvent:
+      type: object
+      description: SSE event progress 的 data JSON
+      properties:
+        type:
+          type: string
+          example: progress
+        code:
+          type: string
+          example: TOOL_CREATE_TASK
+        message:
+          type: string
+          example: 正在为您创建提醒…
+        phase:
+          type: string
+          enum: [ROUTING, PREPARING, EXECUTING]
+        sessionId:
+          type: integer
+          format: int64
+          nullable: true
+        traceId:
+          type: string
+        tool:
+          type: string
+          nullable: true
+        round:
+          type: integer
+          nullable: true
+        toolIndex:
+          type: integer
+          nullable: true
 
     AiChatResponse:
       type: object

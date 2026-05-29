@@ -35,6 +35,22 @@ public final class AiChatIntentSignals {
 
 	private AiChatIntentSignals() {}
 
+	public static boolean suggestsTaskTools(AiChatStructuredIntent intent) {
+		return intent != null && intent.suggestsAssistantTaskTools();
+	}
+
+	public static boolean suggestsPlanProposalTools(AiChatStructuredIntent intent) {
+		return intent != null && intent.suggestsPlanProposalTools();
+	}
+
+	public static boolean suggestsGrowthPlanTools(AiChatStructuredIntent intent) {
+		return intent != null && intent.suggestsGrowthPlanTools();
+	}
+
+	public static boolean suggestsTaskMutation(AiChatStructuredIntent intent) {
+		return intent != null && intent.suggestsTaskMutation();
+	}
+
 	/**
 	 * 意图分析结果是否表明本轮应启用助手任务工具。
 	 */

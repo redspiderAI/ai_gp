@@ -10,7 +10,10 @@ public final class AiChatCapabilityCatalog {
 
 	private AiChatCapabilityCatalog() {}
 
-	public static String plannerSystemAppendix() {
+	/**
+	 * 路由规划 LLM 的 system 动态附录：已上线/未上线能力 id 列表（JSON 规则见 {@link AiChatPrompts#ROUTE_PLAN_JSON_RULES}）。
+	 */
+	public static String plannerCapabilityListAppendix() {
 		StringBuilder sb = new StringBuilder();
 		sb.append("【已上线能力】只能从下列 id 的 capabilities 中选择（可多选）：\n");
 		for (AiChatCapabilityId cap : AiChatCapabilityId.values()) {
@@ -28,37 +31,13 @@ public final class AiChatCapabilityCatalog {
 				sb.append("- ").append(cap.id()).append("：").append(cap.label()).append('\n');
 			}
 		}
-		sb.append(
-				"""
-
-				输出 JSON 字段（不要 markdown）：
-				- capabilities：本轮实际使用的能力 id 数组；纯闲聊至少含 chat
-				- unsupported：用户想要但尚未上线的能力 id 数组，无则 []
-				- taskListStatus：使用 assistant_tasks 且需筛选时填 OPEN/DONE/CANCELLED，否则 null
-				- reason：一句话说明路由理由（内部用）
-
-				规则：
-				- 查/记/改助手待办 → capabilities 含 assistant_tasks（查也必须带，不能只加载摘要）
-				- 用户说任务/待办/学习计划任务「完成了」→ capabilities 含 assistant_tasks 与 growth_plan_tasks；须先 list 再 complete/update，多条匹配须追问
-				- 用户要制定/复习/学习计划、备考方案、一个月计划等 → capabilities 含 plan_proposal（须调用 propose_growth_plan，勿直接 create_task 批量落库）
-				- 续聊或指代上文 → 含 chat_history
-				- 需要称呼或个性化 → 含 user_profile
-				- 用户要长期目标/里程碑 CRUD（非每日任务完成）→ 写 unsupported（goals），不要编造数据
-				""");
 		return sb.toString();
 	}
 
 	public static String buildUnsupportedOnlyReply(List<AiChatCapabilityId> unsupported) {
 		String names =
 				unsupported.stream().map(AiChatCapabilityId::label).collect(Collectors.joining("、"));
-		return """
-				抱歉，这方面我还不是万能的，暂时完不成你要的「%s」。
-				你的需求我已经记下了，会提交给开发同学排期，上线后再跟你说。
-
-				我现在能帮你的是：记待办、查/改任务，或者随便聊聊。比如「帮我记明天下午 3 点开会」「查我未来几天的待办」。
-				"""
-				.formatted(names)
-				.trim();
+		return AiChatPrompts.UNSUPPORTED_ONLY_REPLY_TEMPLATE.formatted(names).trim();
 	}
 
 	public static String buildUnsupportedHintForExecute(List<AiChatCapabilityId> unsupported) {
@@ -67,9 +46,7 @@ public final class AiChatCapabilityCatalog {
 		}
 		String names =
 				unsupported.stream().map(AiChatCapabilityId::label).collect(Collectors.joining("、"));
-		return "用户还想要尚未上线的「"
-				+ names
-				+ "」。请先用一两句轻松中文说明：你不是万能的、这个暂时做不了、已反馈开发排期；再处理你已具备的能力（如助手待办）。不要编造未上线功能的数据。";
+		return AiChatPrompts.unsupportedHintForExecute(names);
 	}
 
 	public static List<AiChatCapabilityId> parseIdList(Iterable<String> ids) {

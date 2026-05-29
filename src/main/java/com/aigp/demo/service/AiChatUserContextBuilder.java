@@ -3,6 +3,7 @@ package com.aigp.demo.service;
 import com.aigp.demo.domain.user.AppUser;
 import com.aigp.demo.domain.user.IdentityType;
 import com.aigp.demo.repository.UserIdentityRepository;
+import com.aigp.demo.service.chat.AiChatPrompts;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -15,78 +16,11 @@ import org.springframework.util.StringUtils;
 
 /**
  * 为 AI 对话组装 system 上下文：按 {@link AiChatDataPlan} 能力切片，仅拼接本轮需要的规则与数据块。
+ * 规则文案见 {@link AiChatPrompts} 执行阶段常量。
  */
 @Component
 @RequiredArgsConstructor
 public class AiChatUserContextBuilder {
-
-	/** 纯闲聊 / 无工具场景的最小人设（不含任务工具说明）。 */
-	private static final String SYSTEM_PERSONA =
-			"""
-			你是「AI成长计划」中的智能助手。请用简洁、友好的中文回复用户。
-			请结合下方上下文回复；未提供的信息不要编造。
-			日期格式：yyyy-MM-dd；时刻格式：yyyy-MM-dd HH:mm。
-			""";
-
-	/** 启用助手任务工具时追加：创建、提醒与日期时刻规则。 */
-	private static final String TASK_SCHEDULING_RULES =
-			"""
-
-			你可以通过工具帮用户管理个人任务（创建、查询、更新、取消），任务与成长计划中的排期任务相互独立。
-
-			【记待办 / 安排】
-			- 用户说「帮我记录」「记一下」「安排」「开会」等时，应优先调用 create_task，并在回复中说明已创建的内容。
-			- 未说明具体日期时，dueDate 使用下方【当前日期】，不要反复追问「哪一天」。
-			- 用户说了具体时刻（如下午9点、21:00）时，用 create_task 的 dueAt，格式 yyyy-MM-dd HH:mm（精确到分）；仅「某天」无时刻时用 dueDate（yyyy-MM-dd）。
-			- 用户在上文已问过日期、本轮只回答「今天」「明天」等时，结合对话历史理解并直接创建任务。
-
-			【提醒 / 记得 / 别忘了】
-			- 用户说「提醒我…」「记得…」「别忘了…」等且未给出具体几点时：必须调用 create_task 并填写 dueAt（yyyy-MM-dd HH:mm，精确到分）。
-			- 日期部分：未说明哪一天时，默认用【当前日期】；若该日已无合理提醒时刻，可用次日。
-			- 时刻部分：由你结合事项与【当前日期时间】推荐一个合理整点或半点（如喝水可约 1～2 小时后或下一整点），不要只填 dueDate 而无 dueAt。
-			- 用户已明确时刻时，严格按用户语义填写 dueAt，不要擅自改点。
-			- 创建成功后，向用户确认已设置提醒；**不要**声称「无法在指定时间主动推送」——后端会在到点自动投递：写入当前聊天会话、站内通知，并 WebSocket 推送（用户在线时聊天页可实时刷新）。
-			- 用户问「到时候怎么提醒」时，说明：到点会在 App 聊天里收到助手消息，并有通知提醒；请保持 App 在线或允许系统通知。
-			""";
-
-	private static final String TASK_TOOL_RULES =
-			"""
-
-			【本轮须用任务工具】
-			能创建就不要只追问；信息够用时立即 create_task，避免与上文重复确认。
-			用户要查看/回顾计划或待办时，必须调用 list_tasks（使用 OpenAI 标准 tool_calls），禁止在正文里写 <tool_call> 等 XML。
-			用户问「未来几天」「未来N天」时：list_tasks 的 dueFrom 填明天（yyyy-MM-dd），dueTo 按天数填截止日；不要把「今天」算进未来。
-			""";
-
-	private static final String COMPLETE_TASK_RULES =
-			"""
-
-			【标记任务已完成】
-			- 用户说「XX完成了」「做完了」「搞定了」等：先 list_growth_tasks（date 默认今天）与 list_tasks（dueFrom/dueTo=【当前日期】，status=OPEN）查候选，**禁止未查就瞎猜 taskId**。
-			- 用户说「今天」且未给具体日期时，date / dueFrom / dueTo 均用【当前日期】；用户明确说了「昨天」「5月20号」等则用对应日期。
-			- 标题匹配：在候选里按用户描述模糊匹配 title；**唯一**匹配则立即 complete_growth_task 或 update_task(status=DONE)；**多条**匹配则列出并请用户确认是哪一条；**零条**则说明未找到，不要编造已完成。
-			- 成长计划任务（tasks 表）：用 complete_growth_task；助手待办（user_assistant_tasks）：用 update_task 设 status=DONE。
-			- App 端也可调用 POST /api/v1/users/me/tasks/complete（source=assistant|growth），与本规则一致。
-			- 同一事项可能同时存在于两表（如「[学习计划] 英语」与 growth 任务「英语」）；优先 complete_growth_task，会自动同步助手待办；若仅助手待办则 update_task。
-			- 用户未指明是哪项、且今日候选多于一条时，**必须追问**，不要默认猜第一个。
-			""";
-
-	private static final String GROWTH_TASK_TOOL_RULES =
-			"""
-
-			【成长计划每日任务（tasks 表）】
-			用户查看或完成「学习计划里的今日任务」时，调用 list_growth_tasks / complete_growth_task；勿与 propose_growth_plan（未确认草案）混淆。
-			""";
-
-	private static final String PLAN_PROPOSAL_TOOL_RULES =
-			"""
-
-			【本轮须提交成长计划草案】
-			- 用户要制定/复习/学习计划、备考方案（如六级一个月）时：必须调用 propose_growth_plan，填入完整 days 数组（每天一条，scheduledDate 连续或按周合理分布）。
-			- 禁止在未确认前用 create_task 批量落库整份计划；确认由用户在 App 点击「确认计划」后由后端执行。
-			- 工具成功后：用友好中文概括 goalTitle、天数、每日提醒时刻，并明确提示「请查看计划详情并确认后才会开始每日提醒」。
-			- dailyReminderTime 默认 08:00；结合用户 weeklyHours 与偏好可调整为 07:00～21:00 的整点或半点。
-			""";
 
 	private final UserIdentityRepository userIdentityRepository;
 	private final CompanionMemoryService companionMemoryService;
@@ -102,7 +36,7 @@ public class AiChatUserContextBuilder {
 			String intentHint,
 			String unsupportedHint,
 			List<Long> messageImageAssetIds) {
-		StringBuilder sb = new StringBuilder(SYSTEM_PERSONA);
+		StringBuilder sb = new StringBuilder(AiChatPrompts.EXECUTE_PERSONA);
 		appendCurrentDate(sb, user);
 		if (messageImageAssetIds != null && !messageImageAssetIds.isEmpty()) {
 			String ids = messageImageAssetIds.stream().map(String::valueOf).collect(Collectors.joining(", "));
@@ -120,18 +54,18 @@ public class AiChatUserContextBuilder {
 			sb.append("\n【暂未开放能力（须在回复中说明）】\n").append(unsupportedHint.trim()).append('\n');
 		}
 		if (plan != null && plan.needTaskTools()) {
-			sb.append(TASK_SCHEDULING_RULES);
-			sb.append(TASK_TOOL_RULES);
-			sb.append(COMPLETE_TASK_RULES);
+			sb.append(AiChatPrompts.EXECUTE_TASK_SCHEDULING_RULES);
+			sb.append(AiChatPrompts.EXECUTE_TASK_TOOL_RULES);
+			sb.append(AiChatPrompts.EXECUTE_COMPLETE_TASK_RULES);
 		}
 		if (plan != null && plan.needGrowthPlanTools()) {
-			sb.append(GROWTH_TASK_TOOL_RULES);
+			sb.append(AiChatPrompts.EXECUTE_GROWTH_TASK_TOOL_RULES);
 			if (!plan.needTaskTools()) {
-				sb.append(COMPLETE_TASK_RULES);
+				sb.append(AiChatPrompts.EXECUTE_COMPLETE_TASK_RULES);
 			}
 		}
 		if (plan != null && plan.needPlanProposalTools()) {
-			sb.append(PLAN_PROPOSAL_TOOL_RULES);
+			sb.append(AiChatPrompts.EXECUTE_PLAN_PROPOSAL_TOOL_RULES);
 		}
 		if (plan == null || plan.needUserProfile()) {
 			sb.append("\n【用户基本信息】\n");

@@ -100,7 +100,71 @@
 }
 ```
 
-- **503 / FEATURE_UNAVAILABLE**：提供商未配置或 Key 缺失。
+- **503 / SERVICE_UNAVAILABLE**：提供商未配置、模型调用失败等；`message` 为固定友好文案（如「模型服务暂时不可用，请稍后再试」），**不含**上游 API body。
+
+---
+
+### 2.1.1 流式发送对话消息（SSE 进度）
+
+- **方法 / 路径**：`POST /api/v1/ai/chat/stream`
+- **Accept**：客户端无需特殊 Accept；响应固定为 `Content-Type: text/event-stream`
+- **说明**：请求体与 **2.1** 完全相同。处理过程中推送**固定话术**进度（`event: progress`），全部完成后推送 `event: done`（JSON 与 **2.1** 的 200 响应体一致）。**推荐 App 聊天页使用本接口**；老客户端可继续用 `POST /ai/chat`。
+- **鉴权**：同 2.1，`Authorization: Bearer {accessToken}`
+
+#### SSE 事件
+
+| event 名 | 含义 | data 格式 |
+|----------|------|-----------|
+| `progress` | 进行中进度 | JSON，见下表 |
+| `done` | 本轮完成 | JSON，与 `AiChatResponse` 相同（同 2.1 响应体） |
+| `error` | 失败 | JSON：`{ "type": "error", "message": "..." }` |
+
+**progress 载荷字段**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| type | string | 固定 `progress` |
+| code | string | 进度码，如 `TOOL_CREATE_TASK`、`ANALYZING` |
+| message | string | 用户可见固定中文（后端查表，请直接展示） |
+| phase | string | `ROUTING` / `PREPARING` / `EXECUTING` |
+| sessionId | number \| null | 会话就绪后有值 |
+| traceId | string | 本轮追踪 ID（排障用） |
+| tool | string \| null | 正在执行的工具名，如 `create_task` |
+| round | number \| null | 执行环轮次，从 1 起 |
+| toolIndex | number \| null | 该轮内第几个工具，从 1 起 |
+
+**常见 progress.code 与 message**：
+
+| code | message（示例） |
+|------|-----------------|
+| `ANALYZING` | 正在理解您的问题… |
+| `ROUTE_CHAT_ONLY` | 正在组织回复… |
+| `ROUTE_WITH_TOOLS` | 正在为您处理… |
+| `TOOL_CREATE_TASK` | 正在为您创建提醒… |
+| `TOOL_LIST_TASKS` | 正在查询您的待办… |
+| `TOOL_PROPOSE_PLAN` | 正在为您构建学习计划… |
+| `GENERATING` | 正在思考回复… |
+| `SYNTHESIZING` | 正在整理回复… |
+
+完整枚举见后端 `AiChatProgressCode`。
+
+#### 前端处理要点
+
+1. 使用 `fetch` + `ReadableStream` 解析 SSE（不要用仅支持「等完整 JSON」的封装）。
+2. 发送后立即插入用户气泡 + **助手占位**（`pending`）；收到 `progress` 只更新占位区副文案。
+3. 收到 `done` 后：用 `reply` **替换**占位内容，写入 `sessionId`、`assistantMessageId`、`roundAction`、`planProposal`。
+4. 用户离开页或点击停止： `AbortController.abort()` 断开连接。
+5. 网关/Nginx 须关闭对该路径的响应缓冲（`proxy_buffering off`），否则进度会卡住后一次性到达。
+
+#### progress 示例（单行 data）
+
+```json
+{"type":"progress","code":"TOOL_CREATE_TASK","message":"正在为您创建提醒…","phase":"EXECUTING","sessionId":12,"traceId":"a1b2c3","tool":"create_task","round":1,"toolIndex":1}
+```
+
+#### done 示例
+
+与 **2.1 示例响应** 相同，作为 `event: done` 的 `data` 整段 JSON。
 
 ---
 

@@ -27,6 +27,15 @@ public final class AiChatTaskPhraseSignals {
 			".*(提醒我|记得|别忘了|记一下|帮我记|帮我记录|记个|安排一下|记待办|帮我安排|记录一下).*",
 			Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
 
+	private static final Pattern TASK_LIST_QUERY = Pattern.compile(
+			".*(未来|接下来|这几天|最近|哪些|列出|查看|查询|看看|有什么|有啥|帮我看|查一下|查下)"
+					+ ".*(任务|待办|提醒|安排|计划).*",
+			Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+
+	private static final Pattern TASK_LIST_SHORT = Pattern.compile(
+			"^(我)?(的)?(任务|待办|提醒)(列表|清单)?$",
+			Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+
 	private AiChatTaskPhraseSignals() {}
 
 	/** 用户是在问任务状态（如「完成了吗」「有没有完成」），不是要标记完成。 */
@@ -73,5 +82,22 @@ public final class AiChatTaskPhraseSignals {
 		return TASK_CREATE.matcher(t).matches()
 				|| isTaskCompleteStatement(t)
 				|| TASK_DELETE.matcher(t).matches();
+	}
+
+	/** 用户是否在请求查看/列出待办（供查询类兜底，与确定性路由语义对齐）。 */
+	public static boolean looksLikeTaskListRequest(String msg) {
+		if (!StringUtils.hasText(msg) || isTaskStatusQuery(msg)) {
+			return false;
+		}
+		String t = msg.trim();
+		if (TASK_LIST_SHORT.matcher(t).matches()) {
+			return true;
+		}
+		if (TASK_LIST_QUERY.matcher(t).matches()) {
+			return true;
+		}
+		String lower = t.toLowerCase(Locale.ROOT);
+		return (lower.contains("待办") || lower.contains("任务") || lower.contains("提醒"))
+				&& (lower.contains("查") || lower.contains("列") || lower.contains("有哪些") || lower.contains("看看"));
 	}
 }

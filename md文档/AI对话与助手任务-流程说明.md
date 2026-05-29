@@ -19,6 +19,34 @@
 
 ---
 
+## 1.1 后端代码结构（四阶段流水线）
+
+单轮对话由 `AiChatConversationPipeline` 编排，与产品上的四步一一对应：
+
+| 阶段 | 类 | 职责 |
+|------|-----|------|
+| ① 判断意图 | `AiChatIntentPhase` | 路由（快速/确定性/plan LLM）+ refine + 可选 intent LLM |
+| ② 选择工具 | `AiChatToolSelection` + `AiChatUserContextBuilder` | `AiChatDataPlan` → 挂载 tools、拼接 system |
+| ③ 执行任务 | `AiChatExecutionPhase` | 多轮 LLM + `AiChatToolExecutor` + `AiChatExecutionToolGuard` |
+| ④ 返回 | `AiChatConversationPipeline#phase4Finish` | 落库 USER/ASSISTANT、WebSocket、`AiChatResponse` |
+
+**提示词（单一维护点）**：`src/main/java/com/aigp/demo/service/chat/AiChatPrompts.java`（路由/意图/执行 system/工具描述/兜底话术）。
+
+**结构化选择（禁止自由发挥）**：
+- 路由规划 LLM：仅输出 JSON，`capabilities` / `unsupported` 从能力 id 白名单勾选，`routeReasonCode` 从 `AiChatRouteReasonCode` 枚举选一。
+- 意图分析 LLM：仅输出 JSON，字段为 `AiChatStructuredIntent` 枚举；解析失败则不拼意图进 execute。
+- 仅未上线能力：固定话术 `AiChatPrompts.UNSUPPORTED_ONLY_REPLY_TEMPLATE`；执行阶段提及未上线能力时用 `unsupportedHintForExecute` 固定句式。
+
+**路由规则（无 LLM）**：`AiChatFastPath`、`AiChatDeterministicRoute`、`AiChatRouteResolver`。
+
+**HTTP 入口**：
+- 同步：`POST /api/v1/ai/chat` → `AiChatService#chat` → `AiChatConversationPipeline`（无中间进度）。
+- 流式：`POST /api/v1/ai/chat/stream` → `AiChatStreamService` → 同上流水线 + `ChatProgressEmitter`（SSE `progress` / `done`）。
+
+**进度固定话术**：`AiChatProgressMessages` + `AiChatProgressCode`；工具执行前推送如「正在为您创建提醒…」。
+
+---
+
 ## 2. 用户主动发一条消息（主流程）
 
 ```mermaid
@@ -71,7 +99,11 @@ flowchart TD
 
 **路由与执行兜底**：
 - 「**完成了吗** / 有没有完成」等**询问**走「查询任务完成状态」，不会误判为「标记完成」。
-- 执行环内若模型**未调任务工具**却回复「已安排 / 已标记完成」等，会**追加一轮**强制补调；仍失败则返回「未能写入待办」类话术，避免 `roundAction=CHAT_ONLY` 与口头承诺不一致。
+- 执行环内 **ToolGuard 兜底**（`AiChatExecutionToolGuard`）：
+  - **变更类**（创建/完成/取消）：未落库（`roundAction` 非 CREATED/UPDATED/DELETED/COMPLETED）却口头承诺 → 强制补调一轮；含「先 `list_tasks` 再说已创建」。
+  - **查询类**（列出待办）：未调 `list_tasks`/`get_task` 却在正文编造列表 → 强制补调一轮。
+  - 补调仍失败 → 固定话术（`FALLBACK_MUTATION_NOT_PERSISTED` / `FALLBACK_QUERY_NOT_PERSISTED`）。
+- LLM HTTP/解析失败 → 对用户统一「模型服务暂时不可用，请稍后再试」（不含上游 body 片段）；详情仅打服务端日志。
 
 **历史消息 `roundAction`**：`POST /ai/chat` 落库时写入 `ai_chat_messages.round_action`；`GET .../messages` 在 **ASSISTANT** 消息上返回同名字段，便于多端刷新会话列表后渲染动作标签。
 8. **落库规则**：数据库里**只存两条**——本轮用户消息、本轮助手最终回复。中间的规划、意图分析、工具调用过程**不写入** `ai_chat_messages`（计划草案存 `growth_plan_proposals`）。

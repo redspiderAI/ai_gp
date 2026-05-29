@@ -7,7 +7,10 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import com.aigp.demo.service.chat.AiChatPrompts;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -17,6 +20,8 @@ import org.springframework.web.client.RestClientResponseException;
 @Component
 @RequiredArgsConstructor
 public class OpenAiCompatibleChatClient {
+
+	private static final Logger log = LoggerFactory.getLogger(OpenAiCompatibleChatClient.class);
 
 	private final ObjectMapper objectMapper;
 	private final AiChatPipelineDebugLog pipelineDebugLog;
@@ -105,7 +110,8 @@ public class OpenAiCompatibleChatClient {
 				detail = detail.substring(0, 500);
 			}
 			pipelineDebugLog.step(phase, "LLM 调用失败 status=%s body=%s", ex.getStatusCode(), detail);
-			throw new IllegalStateException("模型接口调用失败: " + ex.getStatusCode() + " " + detail, ex);
+			log.warn("LLM 调用失败 phase={} status={} body={}", phase, ex.getStatusCode(), detail);
+			throw new IllegalStateException(AiChatPrompts.LLM_CALL_FAILED_USER_MESSAGE, ex);
 		}
 	}
 
@@ -135,7 +141,8 @@ public class OpenAiCompatibleChatClient {
 					usage.path("completion_tokens").isMissingNode() ? null : usage.path("completion_tokens").asInt();
 			return new ChatCompletionResult(content, reasoningContent, toolCalls, promptTokens, completionTokens);
 		} catch (Exception e) {
-			throw new IllegalStateException("解析模型响应失败", e);
+			log.warn("解析模型响应失败: {}", e.getMessage());
+			throw new IllegalStateException(AiChatPrompts.LLM_CALL_FAILED_USER_MESSAGE, e);
 		}
 	}
 

@@ -1,6 +1,7 @@
 package com.aigp.demo.web.ai;
 
 import com.aigp.demo.service.AiChatService;
+import com.aigp.demo.service.AiChatStreamService;
 import com.aigp.demo.web.ai.dto.AiChatMessageListResponse;
 import com.aigp.demo.web.ai.dto.AiChatRequest;
 import com.aigp.demo.web.ai.dto.AiChatResponse;
@@ -21,7 +22,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
  * AI 对话：单接口对外；任务增删改查由模型通过后端工具完成，会话与消息落库。
@@ -35,11 +38,23 @@ import org.springframework.web.bind.annotation.RestController;
 public class AiChatController {
 
 	private final AiChatService aiChatService;
+	private final AiChatStreamService aiChatStreamService;
 
 	@PostMapping("/chat")
 	@Operation(summary = "发送对话消息（自动管理任务与会话记录）")
 	public AiChatResponse chat(@CurrentUser JwtUserClaims user, @Valid @RequestBody AiChatRequest request) {
 		return aiChatService.chat(
+				user.userId(),
+				request.message(),
+				request.sessionId(),
+				request.provider(),
+				request.imageAssetIds());
+	}
+
+	@PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+	@Operation(summary = "发送对话消息（SSE 进度 + 最终回复）")
+	public SseEmitter chatStream(@CurrentUser JwtUserClaims user, @Valid @RequestBody AiChatRequest request) {
+		return aiChatStreamService.streamChat(
 				user.userId(),
 				request.message(),
 				request.sessionId(),

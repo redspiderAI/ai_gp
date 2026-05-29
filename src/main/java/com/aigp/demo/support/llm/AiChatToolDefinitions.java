@@ -1,5 +1,6 @@
 package com.aigp.demo.support.llm;
 
+import com.aigp.demo.service.chat.AiChatPrompts;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -12,7 +13,7 @@ public final class AiChatToolDefinitions {
 		return List.of(
 				tool(
 						"list_tasks",
-						"查询当前用户的任务列表，可按状态与截止日期范围筛选",
+						AiChatPrompts.TOOL_LIST_TASKS,
 						Map.of(
 								"type",
 								"object",
@@ -42,7 +43,7 @@ public final class AiChatToolDefinitions {
 								List.of())),
 				tool(
 						"get_task",
-						"按任务 ID 查询单条任务详情",
+						AiChatPrompts.TOOL_GET_TASK,
 						Map.of(
 								"type",
 								"object",
@@ -52,7 +53,7 @@ public final class AiChatToolDefinitions {
 								List.of("taskId"))),
 				tool(
 						"create_task",
-						"为用户创建一条新任务",
+						AiChatPrompts.TOOL_CREATE_TASK,
 						Map.of(
 								"type",
 								"object",
@@ -86,7 +87,7 @@ public final class AiChatToolDefinitions {
 								List.of("title"))),
 				tool(
 						"update_task",
-						"更新用户已有任务（部分字段）",
+						AiChatPrompts.TOOL_UPDATE_TASK,
 						Map.of(
 								"type",
 								"object",
@@ -126,7 +127,7 @@ public final class AiChatToolDefinitions {
 								List.of("taskId"))),
 				tool(
 						"delete_task",
-						"删除（取消）用户的一条任务，将状态置为 CANCELLED",
+						AiChatPrompts.TOOL_DELETE_TASK,
 						Map.of(
 								"type",
 								"object",
@@ -141,7 +142,7 @@ public final class AiChatToolDefinitions {
 		return List.of(
 				tool(
 						"list_growth_tasks",
-						"查询用户成长计划每日任务（tasks 表）。用户说「今天的学习任务」或要标记计划任务完成前先调用。",
+						AiChatPrompts.TOOL_LIST_GROWTH_TASKS,
 						Map.of(
 								"type",
 								"object",
@@ -163,7 +164,7 @@ public final class AiChatToolDefinitions {
 								List.of())),
 				tool(
 						"complete_growth_task",
-						"将成长计划任务标记为已完成（tasks 表）。仅未完成状态；须先 list_growth_tasks 确认 taskId。",
+						AiChatPrompts.TOOL_COMPLETE_GROWTH_TASK,
 						Map.of(
 								"type",
 								"object",
@@ -180,14 +181,7 @@ public final class AiChatToolDefinitions {
 	 */
 	public static List<Map<String, Object>> planProposalTools() {
 		return List.of(
-				tool(
-						"propose_growth_plan",
-						"""
-						提交一份结构化成长/学习计划草案（待用户在 App 内确认后才入库）。
-						用户要制定复习计划、备考方案、N天学习计划时必须调用本工具；
-						禁止用 create_task 批量代替整份计划。
-						调用成功后向用户展示 summary 与每日安排要点，并说明需点击确认后才会开始每日提醒。
-						""",
+				tool("propose_growth_plan", AiChatPrompts.TOOL_PROPOSE_GROWTH_PLAN,
 						Map.of(
 								"type",
 								"object",
